@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f0e6">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="description" content="HushBoard — Zcash testnet üzerinde iade edilebilir shielded teminatla hesapsız geri bildirim.">
+  <title>HushBoard — Hesapsız geri bildirim</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body data-view="participant">
+  <a class="skip-link" href="#main-content">İçeriğe geç</a>
+
+  <div class="site-shell">
+    <header class="topbar" aria-label="Ana gezinme">
+      <a class="brand" href="#top" aria-label="HushBoard ana sayfa">
+        <span class="brand-mark" aria-hidden="true">HB</span>
+        <span class="brand-type">
+          <strong>HushBoard</strong>
+          <small>Zcash testnet</small>
+        </span>
+      </a>
+
+      <div class="topbar-actions">
+        <button class="text-button view-toggle" id="view-toggle" type="button" aria-controls="participant-panel moderator-panel" aria-pressed="false">
+          Operatör paneli →
+        </button>
+        <div class="network-pill is-loading" id="network-pill" role="status" aria-live="polite">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span id="network-pill-label">TESTNET · KONTROL EDİLİYOR</span>
+        </div>
+        <button class="icon-button" id="open-reset" type="button" aria-label="Demo verisini sıfırla" title="Demo verisini sıfırla">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.9 8.2A8 8 0 1 1 4 12M4.9 8.2V3.8m0 4.4h4.4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="eyebrow"><span></span> Zcash testnet · İade edilebilir teminat</div>
+          <h1 id="hero-title">Fikrini gönder.<br><em>Hesap açmadan.</em></h1>
+          <p>Mesajını yaz, <strong>0,01 TAZ</strong> testnet teminatını gönder. Meşruysa teminatın kendisi geri gelir; ilk gönderimdeki ağ ücreti gelmez.</p>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="HushBoard çalışma alanı">
+        <article class="panel participant-panel" id="participant-panel" aria-labelledby="participant-title">
+          <div class="panel-accent" aria-hidden="true"></div>
+          <header class="panel-header">
+            <div>
+              <div class="section-kicker"><span>01</span> Geri bildirim</div>
+              <h2 id="participant-title">Mesajını gönder</h2>
+            </div>
+            <div class="shield-chip" title="İade edilebilir teminat">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 20 6v5.6c0 5-3.4 8.6-8 10.4-4.6-1.8-8-5.4-8-10.4V6l8-3.2Z"/><path d="M12 7.5v8.8M8.8 11.9h6.4"/></svg>
+              <span><b>0,01 TAZ</b><small>testnet · iade edilebilir</small></span>
+            </div>
+          </header>
+
+          <div id="composer-view">
+            <form id="feedback-form" novalidate>
+              <div class="field-group">
+                <div class="label-row">
+                  <label for="feedback-message">Mesajın</label>
+                  <span id="character-count">0 / 320</span>
+                </div>
+                <textarea id="feedback-message" name="message" maxlength="320" minlength="4" rows="4" aria-describedby="character-count" required placeholder="Ekibin duymasını istediğin şeyi yaz…"></textarea>
+              </div>
+
+              <div class="field-group">
+                <div class="label-row">
+                  <label for="refund-address">İade adresin</label>
+                  <span class="privacy-label">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 10V7.8a4.5 4.5 0 0 1 9 0V10M6 10h12v10H6z"/></svg>
+                    yalnızca iade için
+                  </span>
+                </div>
+                <div class="input-with-icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-3.5 7-10V5l-7-2-7 2v6c0 6.5 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+                  <input id="refund-address" name="refund_address" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" minlength="50" maxlength="512" aria-describedby="refund-address-hint" required placeholder="utest1… testnet iade adresi">
+                </div>
+                <p class="field-hint" id="refund-address-hint">Bu adres sadece iade için kullanılır; operatör ekranında tamamı görünmez.</p>
+              </div>
+
+              <div class="form-error" id="form-error" role="alert" hidden></div>
+
+              <p class="decision-note" id="deposit-disclosure">Ödeme alanları zincirde shielded olsa da HushBoard mesajı, iade adresini ve zamanlamayı görür. İade kararını moderatör verir; spam sayarsa teminatı tutar. İlk ağ ücreti iade edilmez.</p>
+
+              <div class="form-submit-row">
+                <div class="bond-summary" aria-label="Teminat özeti">
+                  <span>İade edilebilir teminat</span>
+                  <strong>0,01 TAZ <small>testnet · parasal değeri yok</small></strong>
+                </div>
+                <button class="primary-button" id="create-button" type="submit" aria-describedby="deposit-disclosure">
+                  <span>Ödeme isteği oluştur</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+                </button>
+              </div>
+            </form>
+
+            <div class="micro-flow" aria-label="Katılımcı adımları">
+              <div class="micro-step is-active"><b>01</b><span>Yaz<small>mesajın</small></span></div>
+              <i aria-hidden="true"></i>
+              <div class="micro-step"><b>02</b><span>Öde<small>0,01 TAZ</small></span></div>
+              <i aria-hidden="true"></i>
+              <div class="micro-step"><b>03</b><span>Onay<small>testnet</small></span></div>
+              <i aria-hidden="true"></i>
+              <div class="micro-step"><b>04</b><span>İade<small>onaylanırsa</small></span></div>
+            </div>
+
+          </div>
+
+          <div id="invoice-view" hidden>
+            <div class="invoice-topline">
+              <div>
+                <span class="status-badge status-pending" id="invoice-status-badge"><i></i> ÖDEME BEKLENİYOR</span>
+                <span class="submission-code" id="invoice-code">#—</span>
+              </div>
+              <button class="quiet-button" id="new-feedback" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                Yeni bildirim
+              </button>
+            </div>
+
+            <div class="invoice-grid">
+              <div class="invoice-main">
+                <span class="invoice-label">Shielded teminat</span>
+                <div class="invoice-amount"><strong id="invoice-amount">0,01</strong><span>TAZ<small>testnet</small></span></div>
+                <p id="invoice-instruction">Aşağıdaki tek kullanımlık adrese tam tutarı gönder.</p>
+
+                <div class="address-box">
+                  <code id="payment-address">Adres hazırlanıyor…</code>
+                  <button class="copy-button" id="copy-address" type="button" aria-label="Ödeme adresini kopyala">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8z"/><path d="M5 16H4V5h11v1"/></svg>
+                    <span>Kopyala</span>
+                  </button>
+                </div>
+
+                <div class="invoice-actions">
+                  <button class="primary-button wallet-button" id="pay-button" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5h16v12H3z"/><path d="M19 10h2v5h-2M6 6.5V4h10v2.5"/></svg>
+                    <span>Ödeme akışını başlat</span>
+                  </button>
+                  <button class="secondary-button" id="check-payment" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.2L20 11M4 13l2.4 4.2A7 7 0 0 0 18 15"/></svg>
+                    Durumu kontrol et
+                  </button>
+                </div>
+                <small class="wallet-caption" id="wallet-caption">Canlı testnet bağlantısı kontrol ediliyor…</small>
+              </div>
+
+              <figure class="qr-card">
+                <div class="qr-frame" id="qr-frame">
+                  <div class="qr-placeholder" id="qr-placeholder" aria-label="QR kod hazırlanıyor">
+                    <span></span><span></span><span></span><span></span>
+                  </div>
+                  <img id="qr-image" alt="Shielded ödeme QR kodu" hidden>
+                </div>
+                <figcaption>ZIP-321 ödeme isteği</figcaption>
+              </figure>
+            </div>
+
+            <ol class="status-timeline" id="status-timeline" aria-label="Bildirim durumu"></ol>
+            <div id="outcome-card" class="outcome-card" hidden></div>
+            <div class="form-error" id="invoice-error" role="alert" hidden></div>
+          </div>
+
+          <footer class="privacy-footnote">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20 6v5.7c0 4.9-3.3 8.5-8 10.2-4.7-1.7-8-5.3-8-10.2V6l8-3Z"/><path d="M12 8v5M12 16.5v.1"/></svg>
+            <p><strong>Tam anonimlik yok:</strong> Ödeme alanları zincirde shielded; HushBoard mesajı, iade adresini, IP'yi ve zamanı görebilir.</p>
+            <button type="button" data-open-policy>Teminat ve gizlilik</button>
+          </footer>
+        </article>
+
+        <article class="panel moderator-panel" id="moderator-panel" aria-labelledby="moderator-title">
+          <header class="panel-header moderator-header">
+            <div>
+              <div class="section-kicker"><span>02</span> Operatör</div>
+              <h2 id="moderator-title">Bildirimler</h2>
+            </div>
+            <button class="icon-button light" id="sync-button" type="button" aria-label="Zincir ve bildirimleri eşitle" title="Zincir ve bildirimleri eşitle">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.2L20 11M4 13l2.4 4.2A7 7 0 0 0 18 15"/></svg>
+            </button>
+          </header>
+
+          <button class="policy-strip" type="button" data-open-policy>
+            <span class="policy-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 7h14M7.5 7 4 14h7L7.5 7Zm9 0L13 14h7l-3.5-7ZM8 21h8"/></svg>
+            </span>
+            <span><b>Karar ve saklama operatörde</b><small>meşru → 0,01 TAZ teminat iadesi · spam → teminat operatörde kalır</small></span>
+            <svg class="policy-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+
+          <div class="operator-layout">
+            <div class="queue-pane">
+              <div class="board-toolbar">
+                <div class="filter-tabs" role="group" aria-label="Bildirim filtresi">
+                  <button class="is-active" type="button" data-filter="all" aria-pressed="true">Tümü <span id="count-all">0</span></button>
+                  <button type="button" data-filter="review" aria-pressed="false">Bekleyen <span id="count-review">0</span></button>
+                  <button type="button" data-filter="closed" aria-pressed="false">Biten <span id="count-closed">0</span></button>
+                </div>
+                <span class="live-label" id="moderator-mode-label"><i></i> CANLI</span>
+              </div>
+
+              <div class="submission-list" id="submission-list" aria-live="polite" aria-busy="true">
+                <div class="list-skeleton" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+                <div class="list-skeleton" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+
+            </div>
+            <div class="decision-pane">
+              <section class="moderation-detail" id="moderation-detail" aria-labelledby="detail-heading" hidden>
+                <div class="detail-topline">
+                  <div>
+                    <span class="detail-label">Seçili bildirim</span>
+                    <h3 id="detail-heading">#—</h3>
+                  </div>
+                  <span class="status-badge" id="detail-status"><i></i> —</span>
+                </div>
+                <blockquote id="detail-message"></blockquote>
+                <div class="detail-meta" id="detail-meta"></div>
+                <div class="moderation-actions" id="moderation-actions">
+                  <button class="refund-button" id="refund-button" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M18.2 16a7 7 0 1 1 1.1-7L20 12"/><path d="M8.5 12h7M12 8.5V15"/></svg>
+                    <span><b>Meşru</b><small>0,01 TAZ iade et</small></span>
+                  </button>
+                  <button class="keep-button" id="keep-button" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg>
+                    <span><b>Spam / kötüye kullanım</b><small>teminatı tut</small></span>
+                  </button>
+                </div>
+                <div class="detail-error" id="detail-error" role="alert" hidden></div>
+              </section>
+
+              <div class="empty-state" id="empty-state" hidden>
+                <span class="empty-mark" aria-hidden="true">
+                  <svg viewBox="0 0 48 48"><path d="M8 12h32v25H8z"/><path d="M15 20h18M15 26h12"/></svg>
+                </span>
+                <strong>Henüz bildirim yok</strong>
+                <p>İlk ödeme talebi oluşturulduğunda burada görünecek.</p>
+              </div>
+
+            </div>
+          </div>
+
+          <footer class="network-console" aria-label="Ağ sağlığı">
+            <div class="console-item">
+              <span class="console-dot" id="health-dot"></span>
+              <span><small>Ağ</small><b id="health-network">Kontrol ediliyor</b></span>
+            </div>
+            <div class="console-item">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v12H4zM7 7V4h10v3"/><path d="M8 13h.1M12 13h.1"/></svg>
+              <span><small>Cüzdan</small><b id="health-wallet">—</b></span>
+            </div>
+            <div class="console-item">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg>
+              <span><small>Son blok</small><b id="health-height">—</b></span>
+            </div>
+            <button class="console-refresh" id="refresh-all" type="button" aria-label="Tüm verileri yenile">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.5-2.2L20 11M4 13l2.4 4.2A7 7 0 0 0 18 15"/></svg>
+            </button>
+          </footer>
+        </article>
+      </section>
+
+      <footer class="page-footer">
+        <p><span>HushBoard · Testnet demosu</span> TAZ'ın maddi değeri yok; panel yalnız yerel operatöre açık.</p>
+        <p>Hesapsız olmak, tam anonim olmak demek değil. <button type="button" data-open-policy>Gizlilik notunu oku</button></p>
+      </footer>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="false"></div>
+
+  <dialog class="info-dialog" id="policy-dialog" aria-labelledby="policy-title">
+    <form method="dialog" class="dialog-surface">
+      <header class="dialog-header">
+        <span class="dialog-index">TEMİNAT / 01</span>
+        <button class="dialog-close" value="close" aria-label="Pencereyi kapat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5 5 19"/></svg>
+        </button>
+      </header>
+      <div class="dialog-icon" aria-hidden="true">
+        <svg viewBox="0 0 40 40"><path d="M20 3.5 34 8.8v9.9c0 8.6-5.8 14.9-14 17.8C11.8 33.6 6 27.3 6 18.7V8.8L20 3.5Z"/><path d="M20 12v9M20 26v.2"/></svg>
+      </div>
+      <h2 id="policy-title">Ödeme shielded.<br>Karar merkezî.</h2>
+      <p class="dialog-lead">Hesap açmıyorsun; onun yerine <strong>0,01 TAZ testnet teminatı</strong> gönderiyorsun. TAZ'ın maddi değeri yok.</p>
+      <div class="policy-steps">
+        <div><b>01</b><span><strong>Teminatı gönder</strong><small>0,01 TAZ, tek kullanımlık shielded adrese gider.</small></span></div>
+        <div><b>02</b><span><strong>HushBoard karar versin</strong><small>Meşruysa 0,01 TAZ teminat geri gider. İlk ağ ücreti geri gelmez.</small></span></div>
+        <div><b>03</b><span><strong>İadeyi takip et</strong><small>Txid geldiyse işlem gönderilmiştir; zincir onayına kadar “iade edildi” demeyiz.</small></span></div>
+      </div>
+      <div class="honesty-box">
+        <strong>Karar ve saklama bizde</strong>
+        <p>Bu bir akıllı sözleşme değil. Kararı HushBoard verir; teminat operatör cüzdanındadır. Yani sistem merkezî; saklama da operatördedir.</p>
+      </div>
+      <div class="privacy-box">
+        <strong>Tam anonimlik yok</strong>
+        <p>Shielded ödeme adresi, tutarı ve memoyu kamusal zincirde açık etmez. Ama HushBoard mesajı, iade adresini ve zamanı bilir; IP ve tarayıcı bilgisi de görülebilir. Tor bu prototipe yerleşik değil. Hassas kişisel bilgi yazma.</p>
+      </div>
+      <button class="dialog-primary" value="close">Tamam</button>
+    </form>
+  </dialog>
+
+  <dialog class="confirm-dialog" id="reset-dialog" aria-labelledby="reset-title">
+    <form method="dialog" class="dialog-surface compact-dialog">
+      <div class="warning-icon" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M16 3 29 27H3L16 3Z"/><path d="M16 11v8M16 23v.1"/></svg>
+      </div>
+      <h2 id="reset-title">Demo başa alınsın mı?</h2>
+      <p>Ekrandaki demo kayıtları silinir. Testnet işlemleri geri alınmaz.</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" value="cancel">Vazgeç</button>
+        <button class="danger-button" id="confirm-reset" value="default" type="button">Demoyu sıfırla</button>
+      </div>
+      <div class="detail-error" id="reset-error" role="alert" hidden></div>
+    </form>
+  </dialog>
+
+  <noscript>
+    <div class="noscript">HushBoard akışını kullanmak için JavaScript etkin olmalı.</div>
+  </noscript>
+</body>
+</html>

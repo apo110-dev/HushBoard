@@ -1,0 +1,51 @@
+1
+00:00:00,300 --> 00:00:04,000
+En dürüst yorumlar hesap duvarında kayboluyor.
+
+2
+00:00:04,000 --> 00:00:08,600
+Hiç sürtünme olmayınca istenmeyen mesajlar çoğalıyor.
+
+3
+00:00:08,600 --> 00:00:11,600
+HushBoard'da başka bir yol var.
+
+4
+00:00:11,600 --> 00:00:14,500
+Fikrini söyle. Hesap açma.
+
+5
+00:00:15,300 --> 00:00:17,400
+Mesajını yaz.
+
+6
+00:00:17,400 --> 00:00:19,700
+İade adresini ayrı ver.
+
+7
+00:00:19,700 --> 00:00:23,000
+0,01 TAZ gönder.
+
+8
+00:00:23,000 --> 00:00:29,500
+Cüzdan, bir milyon zat ile HB1 memosunu zincirde eşleştirir.
+
+9
+00:00:30,300 --> 00:00:33,000
+Karar ve saklama operatörde.
+
+10
+00:00:33,000 --> 00:00:36,200
+Meşru mesajda ana para geri döner.
+
+11
+00:00:36,200 --> 00:00:39,200
+İlk gönderimdeki ağ ücreti geri dönmez.
+
+12
+00:00:39,200 --> 00:00:41,500
+Tam anonimlik vaadi yok.
+
+13
+00:00:41,500 --> 00:00:44,500
+Çalışan, doğrulanmış bir Zcash testnet akışı var.

@@ -1,0 +1,27 @@
+[project]
+name = "hushboard"
+version = "1.0.0"
+description = "Accountless feedback with a refundable shielded Zcash testnet bond"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi==0.116.1",
+  "pydantic==2.13.4",
+  "qrcode[pil]==8.2",
+  "starlette==0.47.3",
+  "uvicorn==0.35.0",
+  "zcash-uri==0.1.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx==0.28.1",
+  "pytest==8.4.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "app/tests"]
+addopts = "-ra --strict-markers"

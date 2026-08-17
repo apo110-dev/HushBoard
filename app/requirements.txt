@@ -1,0 +1,6 @@
+fastapi==0.116.1
+pydantic==2.13.4
+qrcode[pil]==8.2
+starlette==0.47.3
+uvicorn==0.35.0
+zcash-uri==0.1.0

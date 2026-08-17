@@ -1,0 +1,33 @@
+# HushBoard testnet wallet configuration.
+[builder]
+
+[builder.limits]
+
+[consensus]
+network = "test"
+
+[database]
+
+[external]
+
+[features]
+as_of_version = "0.1.0-beta.2"
+
+[features.deprecated]
+
+[features.experimental]
+
+[indexer]
+validator_address = "zebra:18232"
+validator_cookie_path = "/run/secrets/zebra.cookie"
+
+[keystore]
+encryption_identity = "/var/lib/zallet/identity.txt"
+# These are disposable TAZ-only demo wallets. Production wallets must require backup.
+require_backup = false
+
+[note_management]
+
+[rpc]
+bind = ["0.0.0.0:28232"]
+timeout = 90

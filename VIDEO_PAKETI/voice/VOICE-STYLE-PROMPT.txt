@@ -1,0 +1,16 @@
+VOICE GENERATION PROMPT · HUSHBOARD V2
+
+Voice ve video ayrı üretilir. Kling job'larında `sound=off` kullanılır; Kling sesi teslimde yoktur.
+Türkçe anlatıcı için Higgsfield Seed Audio preset `Raina` (`voice_type=preset`) kullan. Üç metni
+ayrı WAV olarak üret; aynı voice ID ve ayarları koru.
+
+- sample rate: 48 kHz
+- format: WAV
+- speech_rate: -20
+- ton: doğal Türkiye Türkçesi, sıcak, kendinden emin, tempolu; bağıran reklam spikeri değil
+- voice içinde müzik, efekt, reverb veya ortam sesi yok
+
+Fonetik üretim metninde `Haşbord`, `ha be bir`, `taz` ve `Zikaş` yazımları kullanılır. Görsel ve
+altyazıda doğru biçimler `HushBoard`, `HB1`, `TAZ` ve `Zcash` olarak kalır. Ham take'ler kelime
+kesmeden 14,20 saniyelik konuşma alanına oturtulur; 0,30 saniye giriş sessizliğiyle her voice stem
+tam 15 saniyedir.

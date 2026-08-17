@@ -1,0 +1,22 @@
+ARŞİV NOTU: Bu start/end promptu ilk yavaş zoom denemesidir; nihai pazarlama filmi değildir.
+
+KLİP 02 · OPERATÖR KANITI · 15 SANİYE · 1920×1080
+
+Start frame: frames/02-operator-proof-start.png
+End frame:   frames/02-operator-proof-end.png
+
+MAIN PROMPT
+The supplied start and end images are exact keyframes of the same flat 2D moderation interface.
+Create one continuous, extremely slow and perfectly linear editorial camera push-in from the
+exact start frame to the exact end frame over 15 seconds. Preserve the real confirmed testnet
+record exactly: all Turkish typography, submission codes, confirmation status, block data,
+buttons, rules, colors and layout must remain pixel-stable and readable. Nothing in the interface
+is clicked or updated. The moderation state never changes. Keep the whole screen flat, crisp and
+in focus. No audio.
+
+NEGATIVE PROMPT
+refund action, keep action, button press, hover animation, cursor, typing, scrolling, changing
+status, changing confirmations, changing block height, changing transaction data, text mutation,
+misspelled Turkish, invented address, invented txid, new UI, removed UI, people, hands, coins,
+wallet animation, hologram, particles, glow, gradient, parallax, depth, perspective tilt, blur,
+camera shake, flicker, morphing, warping, rippling, moving shadows, sound, music, voice

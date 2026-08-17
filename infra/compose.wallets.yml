@@ -1,0 +1,51 @@
+name: hushboard-wallets
+
+x-wallet: &wallet
+  # Zallet beta.2, pinned to the tested linux/amd64 manifest digest.
+  image: ${HUSHBOARD_ZALLET_IMAGE:-zodlinc/zallet:v0.1.0-beta.2@sha256:b30ca91a9a7c83d8eae44c4ba19b5dd3dad377f05ed53aeaff9430d93067f99d}
+  user: "1000:1000"
+  restart: unless-stopped
+  stop_grace_period: 15s
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  entrypoint: ["/usr/local/bin/zallet-zaino"]
+  command: ["--datadir", "/var/lib/zallet", "--config", "/etc/zallet/zallet.toml", "start"]
+  networks: [zcash_testnet]
+  volumes:
+    - ./zallet-testnet.toml:/etc/zallet/zallet.toml:ro
+    - ../.runtime/zebra.cookie:/run/secrets/zebra.cookie:ro
+    - /etc/ssl/certs:/etc/ssl/certs:ro
+
+services:
+  operator-wallet:
+    <<: *wallet
+    volumes:
+      - operator_wallet:/var/lib/zallet
+      - ./zallet-testnet.toml:/etc/zallet/zallet.toml:ro
+      - ../.runtime/zebra.cookie:/run/secrets/zebra.cookie:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    ports:
+      - "127.0.0.1:41232:28232"
+
+  participant-wallet:
+    <<: *wallet
+    volumes:
+      - participant_wallet:/var/lib/zallet
+      - ./zallet-testnet.toml:/etc/zallet/zallet.toml:ro
+      - ../.runtime/zebra.cookie:/run/secrets/zebra.cookie:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    ports:
+      - "127.0.0.1:41233:28232"
+
+volumes:
+  operator_wallet:
+    external: true
+    name: hushboard-operator-wallet
+  participant_wallet:
+    external: true
+    name: hushboard-participant-wallet
+
+networks:
+  zcash_testnet:
+    external: true
+    name: z3-testnet

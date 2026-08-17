@@ -1,0 +1,1 @@
+Karar ve saklama operatörde. Meşru mesajda ana para geri döner. İlk gönderimdeki ağ ücreti geri dönmez. Tam anonimlik vaadi yok. Çalışan, doğrulanmış bir Zikaş testnet akışı var.

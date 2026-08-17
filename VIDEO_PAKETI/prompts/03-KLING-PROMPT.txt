@@ -1,0 +1,19 @@
+ARŞİV NOTU: Bu start/end promptu ilk yavaş zoom denemesidir; nihai pazarlama filmi değildir.
+
+KLİP 03 · KAPANIŞ · 15 SANİYE · 1920×1080
+
+Start frame: frames/03-closing-start.png
+End frame:   frames/03-closing-end.png
+
+MAIN PROMPT
+The supplied start and end images are exact keyframes of the same flat editorial closing card.
+Create one continuous, extremely slow and perfectly linear camera push-in from the exact start
+frame to the exact end frame over 15 seconds. Preserve every Turkish letter, line, number, rule,
+brand mark and color exactly. Keep the graphic completely flat, crisp and in focus. The motion
+must feel calm, confident and minimal, like a restrained documentary title card. No audio.
+
+NEGATIVE PROMPT
+text mutation, misspelled Turkish, translated text, new slogan, new logo, added text, removed
+text, floating letters, particles, coins, people, hands, holograms, glow, gradient, parallax,
+depth, perspective tilt, lens blur, camera shake, flicker, morphing, warping, rippling, moving
+shadows, cinematic lighting, sound, music, voice

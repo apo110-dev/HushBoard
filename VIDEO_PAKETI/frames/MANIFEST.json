@@ -1,0 +1,48 @@
+{
+  "format": "PNG",
+  "delivery": "1920x1080",
+  "frames": [
+    {
+      "file": "01-participant-end.png",
+      "width": 1920,
+      "height": 1080,
+      "mode": "RGB",
+      "sha256": "47851141b2ca3d42d240894eee2f92a8d94007ab15627bcc922b43f8e2766618"
+    },
+    {
+      "file": "01-participant-start.png",
+      "width": 1920,
+      "height": 1080,
+      "mode": "RGB",
+      "sha256": "1cbac89ff3f740775b9bfc75a152e119e9b6137733851e1eadfefc2e79b09bc3"
+    },
+    {
+      "file": "02-operator-proof-end.png",
+      "width": 1920,
+      "height": 1080,
+      "mode": "RGB",
+      "sha256": "a5f5d9e6cd0a2088568b0d0974d29d1e021a47cbcb17d31635f0fd865f3720d3"
+    },
+    {
+      "file": "02-operator-proof-start.png",
+      "width": 1920,
+      "height": 1080,
+      "mode": "RGB",
+      "sha256": "fde12bc98236a2f3efd86a6146ddbff0c14992722a786d2cd69eefafc8979239"
+    },
+    {
+      "file": "03-closing-end.png",
+      "width": 1920,
+      "height": 1080,
+      "mode": "RGB",
+      "sha256": "de9e255b73dd11d291d3748777b3104ac94dbf049abfa997414ed9addf883bbd"
+    },
+    {
+      "file": "03-closing-start.png",
+      "width": 1920,
+      "height": 1080,
+      "mode": "RGB",
+      "sha256": "ca6db2afa840aed33a7e524a84c0855de35388f65221273e4669f5429076a980"
+    }
+  ]
+}

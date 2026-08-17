@@ -1,0 +1,14 @@
+clip,local_start,local_end,global_start,global_end,line
+01,00:00.30,00:04.00,00:00.30,00:04.00,En dürüst yorumlar hesap duvarında kayboluyor
+01,00:04.00,00:08.60,00:04.00,00:08.60,Hiç sürtünme olmayınca istenmeyen mesajlar çoğalıyor
+01,00:08.60,00:11.60,00:08.60,00:11.60,HushBoard'da başka bir yol var
+01,00:11.60,00:14.50,00:11.60,00:14.50,Fikrini söyle / Hesap açma
+02,00:00.30,00:02.40,00:15.30,00:17.40,Mesajını yaz
+02,00:02.40,00:04.70,00:17.40,00:19.70,İade adresini ayrı ver
+02,00:04.70,00:08.00,00:19.70,00:23.00,Sıfır virgül sıfır bir TAZ gönder
+02,00:08.00,00:14.50,00:23.00,00:29.50,Cüzdan bir milyon zat ile HB1 memosunu zincirde eşleştirir
+03,00:00.30,00:03.00,00:30.30,00:33.00,Karar ve saklama operatörde
+03,00:03.00,00:06.20,00:33.00,00:36.20,Meşru mesajda ana para geri döner
+03,00:06.20,00:09.20,00:36.20,00:39.20,İlk gönderimdeki ağ ücreti geri dönmez
+03,00:09.20,00:11.50,00:39.20,00:41.50,Tam anonimlik vaadi yok
+03,00:11.50,00:14.50,00:41.50,00:44.50,Çalışan doğrulanmış bir Zcash testnet akışı var

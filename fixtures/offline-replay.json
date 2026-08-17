@@ -1,0 +1,105 @@
+{
+  "schema": "hushboard-offline-replay/v1",
+  "immutable": true,
+  "captured_at": "2026-08-17T10:58:27Z",
+  "network": "zcash-testnet",
+  "block_height": 4278936,
+  "description": "Sanitized immutable read-only capture copied into a disposable SQLite DB; wallet RPC and all mutation controls are disabled.",
+  "evidence": {
+    "confirmed_wallet_funding_txid": "9bd12efa4edd04187ffc8d8f37bc82886a558ff35590eb6e8da3f2bd72a8e524",
+    "confirmed_wallet_funding_mined_height": 4278614,
+    "confirmed_wallet_funding_note": "Real testnet infrastructure evidence only; this 0.035 TAZ funding output is not presented as a bond.",
+    "confirmed_exact_bond_txid": "0cd263f97de54c0c028930d8a2b1f50b84bb58733de7b277df7847477d8a297f",
+    "confirmed_exact_bond_mined_height": 4278887,
+    "confirmed_exact_bond_note": "Real exact 0.01 TAZ + HB1 memo, receiver-matched by the operator wallet and mined before capture; left unrefunded as the one-shot stage case.",
+    "confirmed_refund_test_bond_txid": "74c7c557ed6bbbd654111bfc44f1ef0dee8b6fe158623591c8e06367bd30660f",
+    "confirmed_refund_test_bond_mined_height": 4278895,
+    "confirmed_fullprivacy_refund_txid": "2dba94e0ece283106c4f2dfc88c34576357fd860d01716d5fc51bb6bdf61e5ad",
+    "confirmed_fullprivacy_refund_mined_height": 4278906,
+    "confirmed_refund_note": "Separate real end-to-end case: exact bond matched, moderator launched FullPrivacy refund, concrete txid persisted, and recipient wallet observed 1,000,000 zat + matching HB1 memo. Raw transactions have zero transparent inputs/outputs."
+  },
+  "items": [
+    {
+      "public_id": "g9825ru2tr4f",
+      "title": "Gece aydınlatması",
+      "body": "Gece laboratuvar çıkışında aydınlatma yetersiz. Yürüyüş yoluna iki ek lamba konabilir mi?",
+      "status": "moderation",
+      "status_detail": "OFFLINE REPLAY: real exact bond mined and receiver/amount/memo matched; deliberately not refunded before this capture.",
+      "refund_address": "redacted-stage-refund-address",
+      "refund_address_hint": "utest1…redacted",
+      "invoice_address": "utest10c5kutapazdnf8ztl3pu43nkfsjx89fy3uuff8tsmxm6s86j37pe7uz94z5jhkl49pqe8yz75rlsaygexk6jpaxwx0esjr8wm5ut7d5s",
+      "amount_zat": 1000000,
+      "evidence_kind": "real_confirmed_bond",
+      "bond": {
+        "txid": "0cd263f97de54c0c028930d8a2b1f50b84bb58733de7b277df7847477d8a297f",
+        "pool": "ironwood",
+        "output_index": 1,
+        "value_zat": 1000000,
+        "memo": "HB1:g9825ru2tr4f",
+        "confirmations": 50,
+        "mined_height": 4278887,
+        "tx_status": "mined",
+        "match_result": "exact"
+      }
+    },
+    {
+      "public_id": "yfqyv6vsm48e",
+      "title": "Gerçek iade entegrasyon testi",
+      "body": "Ayrı bir real bond; FullPrivacy iade akışını uçtan uca doğrulamak için gönderildi.",
+      "status": "refunded",
+      "status_detail": "OFFLINE REPLAY: separate real FullPrivacy refund completed and mined before capture.",
+      "refund_address": "redacted-refund-case-address",
+      "refund_address_hint": "utest1…redacted",
+      "invoice_address": "redacted-refund-case-invoice",
+      "amount_zat": 1000000,
+      "evidence_kind": "real_confirmed_refund_e2e",
+      "bond": {
+        "txid": "74c7c557ed6bbbd654111bfc44f1ef0dee8b6fe158623591c8e06367bd30660f",
+        "pool": "ironwood",
+        "output_index": 1,
+        "value_zat": 1000000,
+        "memo": "HB1:yfqyv6vsm48e",
+        "confirmations": 42,
+        "mined_height": 4278895,
+        "tx_status": "mined",
+        "match_result": "exact"
+      },
+      "refund": {
+        "operation_id": "opid-offline-replay-redacted",
+        "txid": "2dba94e0ece283106c4f2dfc88c34576357fd860d01716d5fc51bb6bdf61e5ad",
+        "confirmations": 31,
+        "mined_height": 4278906,
+        "tx_status": "mined"
+      }
+    },
+    {
+      "public_id": "spamlink3377",
+      "title": "Tekrarlanan reklam bağlantısı",
+      "body": "Aynı reklam bağlantısı tekrar tekrar gönderildi.",
+      "status": "mismatch",
+      "status_detail": "OFFLINE REPLAY synthetic mismatch row — one zat short; no bond accepted.",
+      "refund_address": "redacted-synthetic-refund-address",
+      "refund_address_hint": "utest1…redacted",
+      "invoice_address": "redacted-synthetic-invoice",
+      "amount_zat": 1000000,
+      "evidence_kind": "synthetic_walkthrough",
+      "bond": {
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "pool": "ironwood",
+        "output_index": 0,
+        "value_zat": 999999,
+        "memo": "HB1:spamlink3377",
+        "confirmations": 2,
+        "mined_height": 4278832,
+        "tx_status": "mined",
+        "match_result": "mismatch",
+        "mismatch_reason": "wrong_amount:999999"
+      }
+    }
+  ],
+  "sanitization": {
+    "privacy": "All original invoice/refund Unified Addresses and wallet operation identifiers were removed.",
+    "uri_surrogate": "The first invoice address is an official public ZIP-316 test vector used only to keep offline ZIP-321 parsing executable; it is not the receiver of any listed transaction.",
+    "content": "All feedback text is staged demo content, not a real participant submission."
+  }
+}

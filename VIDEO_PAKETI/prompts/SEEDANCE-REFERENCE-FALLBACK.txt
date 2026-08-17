@@ -1,0 +1,19 @@
+SEEDANCE 2.5 · YALNIZ REFERANS GÖRSEL MODU İÇİN
+
+Seedance yüklenen PNG'yi yalnız "reference" sayıyorsa geometri ve yazı koruması Kling start/end
+frame kadar güvenilir değildir. Ürün kanıtı olan 01 ve 02 için önce Kling kullan. Seedance'i ancak
+kapanış gibi büyük metinli karede veya bir test üretiminde dene.
+
+REFERENCE IMAGE
+İlgili klibin `*-start.png` dosyası.
+
+PROMPT
+Use the supplied image as the exact first visual and the only design source. Produce a locked,
+flat 2D editorial shot with an almost imperceptible slow camera push-in for 15 seconds. Preserve
+all Turkish typography, spacing, colors, rules, icons and layout exactly. Do not reinterpret or
+redesign the image. No added objects, no interaction, no depth, no parallax and no audio.
+
+NEGATIVE PROMPT
+text mutation, misspelling, translation, new text, UI changes, cursor, typing, button press,
+people, hands, coins, holograms, particles, glow, gradient, depth, parallax, blur, shake, flicker,
+morphing, sound, music, voice

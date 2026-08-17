@@ -1,0 +1,7 @@
+# Host-level control planes are loopback-only. P2P stays public intentionally.
+services:
+  zebra:
+    ports: !override
+      - "127.0.0.1:${Z3_ZEBRA_HOST_RPC_PORT:-18232}:${Z3_ZEBRA_RPC_PORT:-18232}"
+      - "${Z3_ZEBRA_HOST_P2P_PORT:-18233}:${Z3_ZEBRA_P2P_PORT:-18233}"
+      - "127.0.0.1:${Z3_ZEBRA_HOST_HEALTH_PORT:-18080}:8080"

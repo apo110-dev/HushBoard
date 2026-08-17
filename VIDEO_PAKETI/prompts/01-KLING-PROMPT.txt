@@ -1,0 +1,21 @@
+ARŞİV NOTU: Bu start/end promptu ilk yavaş zoom denemesidir; nihai pazarlama filmi değildir.
+
+KLİP 01 · KATILIMCI · 15 SANİYE · 1920×1080
+
+Start frame: frames/01-participant-start.png
+End frame:   frames/01-participant-end.png
+
+MAIN PROMPT
+The supplied start and end images are exact keyframes of the same flat 2D product interface.
+Create one continuous, extremely slow and perfectly linear editorial camera push-in from the
+exact start frame to the exact end frame over 15 seconds. The browser interface is a real product
+recording, not a scene to redesign. Preserve every Turkish letter, number, icon, border, spacing,
+button, status and color exactly. Keep the entire image crisp, flat and in focus. No interaction
+takes place. No audio.
+
+NEGATIVE PROMPT
+text mutation, misspelled Turkish, new text, removed text, UI redesign, typing, cursor, mouse,
+scrolling, button press, QR code, wallet popup, people, hands, coins, holograms, particles, glow,
+gradient, parallax, depth, perspective tilt, lens blur, camera shake, flicker, morphing, warping,
+rippling, reflections, shadows moving, status changes, number changes, logo changes, added UI,
+cinematic lighting, sound, music, voice
