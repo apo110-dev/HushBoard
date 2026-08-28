@@ -84,24 +84,21 @@ def _path(value: str, root: Path) -> Path:
     return path if path.is_absolute() else (root / path).resolve()
 
 
-def _validate_rpc_url(url: str, *, allow_remote: bool) -> str:
+def _validate_rpc_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ConfigurationError("Zallet RPC URL must be an http(s) URL")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ConfigurationError("Zallet RPC URL must not contain credentials, query, or fragment")
-    if not allow_remote:
-        host = parsed.hostname.lower()
-        is_loopback = host == "localhost"
-        if not is_loopback:
-            try:
-                is_loopback = ipaddress.ip_address(host).is_loopback
-            except ValueError:
-                is_loopback = False
-        if not is_loopback:
-            raise ConfigurationError(
-                "Zallet RPC must be loopback; set HUSHBOARD_ALLOW_REMOTE_RPC=1 only behind a trusted tunnel"
-            )
+    host = parsed.hostname.lower()
+    is_loopback = host == "localhost"
+    if not is_loopback:
+        try:
+            is_loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            is_loopback = False
+    if not is_loopback:
+        raise ConfigurationError("Zallet RPC must be loopback in this local-only prototype")
     return url.rstrip("/")
 
 
@@ -122,8 +119,6 @@ class Settings:
     minimum_confirmations: int
     bond_zat: int
     admin_key: str
-    allow_remote_rpc: bool
-    allow_mainnet: bool
     live_sends_enabled: bool
     demo_open_admin: bool
     watcher_interval: float
@@ -162,18 +157,14 @@ class Settings:
         else:
             raise ConfigurationError("ZCASH_MODE must be testnet or mainnet")
 
-        allow_mainnet = _bool(values.get("HUSHBOARD_ALLOW_MAINNET"), False)
-        if network == "mainnet" and not allow_mainnet:
-            raise ConfigurationError("mainnet is disabled; HushBoard is testnet-first")
+        if network == "mainnet":
+            raise ConfigurationError("mainnet is permanently disabled in this testnet prototype")
 
-        allow_remote = _bool(values.get("HUSHBOARD_ALLOW_REMOTE_RPC"), False)
         operator_url = _validate_rpc_url(
-            values.get("ZALLET_OPERATOR_URL", "http://127.0.0.1:41232"),
-            allow_remote=allow_remote,
+            values.get("ZALLET_OPERATOR_URL", "http://127.0.0.1:41232")
         )
         participant_url = _validate_rpc_url(
-            values.get("ZALLET_PARTICIPANT_URL", "http://127.0.0.1:41233"),
-            allow_remote=allow_remote,
+            values.get("ZALLET_PARTICIPANT_URL", "http://127.0.0.1:41233")
         )
 
         bond_zat = _int(values.get("BOND_ZAT"), 1_000_000, minimum=1, maximum=21_000_000 * 100_000_000)
@@ -213,8 +204,6 @@ class Settings:
             minimum_confirmations=_int(values.get("ZCASH_MIN_CONFIRMATIONS"), 1, minimum=1, maximum=100),
             bond_zat=bond_zat,
             admin_key=admin_key,
-            allow_remote_rpc=allow_remote,
-            allow_mainnet=allow_mainnet,
             live_sends_enabled=_bool(values.get("HUSHBOARD_ENABLE_LIVE_SENDS"), False),
             demo_open_admin=_bool(values.get("HUSHBOARD_DEMO_OPEN_ADMIN"), True),
             watcher_interval=_float(values.get("HUSHBOARD_WATCH_INTERVAL"), 0.0, minimum=0.0, maximum=3600.0),

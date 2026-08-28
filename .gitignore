@@ -3,9 +3,14 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
 node_modules/
 dist/
 coverage/
+*.egg-info/
 .env
 .env.*
 !.env.example
@@ -16,6 +21,28 @@ data/*.db-*
 .DS_Store
 
 # Defense in depth: never stage wallet material or local secret archives.
+.envrc
+.direnv/
+.netrc
+.npmrc
+.pypirc
+credentials.json
+credentials.yaml
+credentials.yml
+secrets.json
+secrets.yaml
+secrets.yml
+service-account*.json
+wallet.dat
+id_dsa*
+id_ecdsa*
+id_ed25519*
+id_rsa*
+*.7z
+*.bak
+*.backup
+*.rar
+*.zip
 *.sqlite
 *.sqlite3
 *.db

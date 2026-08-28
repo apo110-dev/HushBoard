@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a reproducible, non-security defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not include wallet cookies, seeds, full Unified Addresses, databases, access tokens, raw wallet responses, or private feedback.** Report security issues through the private security link instead.
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Immutable offline replay
+        - Synthetic mock development
+        - Live Zcash testnet
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include minimal, sanitized reproduction steps and the expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, uv version, and commit SHA. Sanitize all paths and logs.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed all secrets, wallet material, full addresses, private content, and raw RPC responses.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

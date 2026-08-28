@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+
 from app.config import Settings
-from app.service import HushBoardService
-from app.wallet import DerivedAddress, OperationLaunch
+from app.service import HushBoardService, InvalidAction
+from app.wallet import DerivedAddress, OperationLaunch, WalletUnavailable
+
+ACCOUNT_UUID = "12345678-1234-" + "4abc-8def-123456789abc"
 
 
 def live_settings(tmp_path, name="edge.db"):
@@ -42,19 +49,210 @@ class ScanWallet:
         return self.details[txid]
 
 
+class BlockingBondWallet(ScanWallet):
+    def __init__(self):
+        super().__init__()
+        self.bond_send_calls = 0
+        self.send_entered = threading.Event()
+        self.release_send = threading.Event()
+        self.operation_id = "opid-20000000-0000-0000-0000-000000000001"
+
+    def send_bond(self, address, memo):
+        self.bond_send_calls += 1
+        self.send_entered.set()
+        assert self.release_send.wait(timeout=5)
+        return OperationLaunch(self.operation_id, "participant")
+
+
+class AcceptedThenTimedOutBondWallet(ScanWallet):
+    def __init__(self):
+        super().__init__()
+        self.bond_send_calls = 0
+
+    def send_bond(self, address, memo):
+        self.bond_send_calls += 1
+        raise WalletUnavailable("simulated timeout after wallet acceptance")
+
+
+class MissingAttachedBondWallet(ScanWallet):
+    def __init__(self, *, broadcast_false=False):
+        super().__init__()
+        self.bond_send_calls = 0
+        self.operation_id = "opid-30000000-0000-0000-0000-000000000001"
+        self.broadcast_false = broadcast_false
+
+    def send_bond(self, address, memo):
+        self.bond_send_calls += 1
+        return OperationLaunch(self.operation_id, "participant")
+
+    def operation_statuses(self, role, operation_ids):
+        assert role == "participant"
+        assert operation_ids == [self.operation_id]
+        if self.broadcast_false:
+            return [
+                {
+                    "id": self.operation_id,
+                    "status": "success",
+                    "result": {"txid": "91" * 32, "broadcast": False},
+                }
+            ]
+        return []
+
+
+def test_live_bond_send_reservation_is_idempotent_while_rpc_is_in_flight(
+    tmp_path, refund_address
+):
+    wallet = BlockingBondWallet()
+    settings = live_settings(tmp_path, "bond-idempotency.db")
+    service = HushBoardService(settings, wallet=wallet)
+    second_process = HushBoardService(settings, wallet=wallet)
+    created = service.create_submission(
+        "One launch", "Concurrent retries must share one durable send intent.", refund_address
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first = executor.submit(service.demo_send, created["id"])
+        assert wallet.send_entered.wait(timeout=5)
+        with pytest.raises(InvalidAction, match="already in progress"):
+            second_process.demo_send(created["id"])
+        wallet.release_send.set()
+        launched = first.result(timeout=5)
+
+    repeated = service.demo_send(created["id"])
+    operations = service.db.operations_for_submission(
+        service.db.get_submission(created["id"])["id"]
+    )
+    assert wallet.bond_send_calls == 1
+    assert len(operations) == 1
+    assert operations[0]["request_key"] == f"bond_send:{operations[0]['submission_id']}"
+    assert launched["operation"]["id"] == wallet.operation_id
+    assert repeated["operation"]["id"] == wallet.operation_id
+    assert service.get_submission(created["id"])["can_demo_send"] is False
+
+
 def tx(txid, address, *, value=1_000_000, memo=None, index=0, pool="ironwood", height=99):
     return {
+        "account_uuid": ACCOUNT_UUID,
         "txid": txid,
         "mined_height": height,
+        "sent_note_count": 0,
+        "received_note_count": 1,
+        "expired_unmined": False,
         "outputs": [{
             "pool": pool,
             "output_index": index,
+            "from_account": None,
+            "to_account": ACCOUNT_UUID,
             "to_address": address,
             "value": value,
             "memo": memo,
             "is_change": False,
         }],
     }
+
+
+def test_late_bond_evidence_repairs_failed_launch_intent_without_resending(
+    tmp_path, refund_address
+):
+    wallet = AcceptedThenTimedOutBondWallet()
+    service = HushBoardService(live_settings(tmp_path, "late-bond.db"), wallet=wallet)
+    created = service.create_submission(
+        "Late evidence", "A timed-out accepted send must reconcile from the chain.", refund_address
+    )
+
+    with pytest.raises(WalletUnavailable, match="wallet service is unavailable"):
+        service.demo_send(created["id"])
+    submission_id = service.db.get_submission(created["id"])["id"]
+    failed_intent = service.db.operations_for_submission(submission_id)[0]
+    assert failed_intent["operation_id"].startswith("intent-")
+    assert failed_intent["status"] == "failed"
+    assert wallet.bond_send_calls == 1
+
+    txid = "ab" * 32
+    wallet.transactions = [
+        tx(txid, created["invoice"]["address"], memo=created["invoice"]["memo"])
+    ]
+    wallet.details[txid] = {"status": "mined", "confirmations": 2}
+    result = service.sync()
+
+    repaired = service.get_submission(created["id"])
+    repaired_intent = service.db.operations_for_submission(submission_id)[0]
+    assert result["operations_updated"] == 1
+    assert repaired["status"] == "moderation"
+    assert repaired["bond"]["txid"] == txid
+    assert repaired_intent["operation_id"] == failed_intent["operation_id"]
+    assert repaired_intent["status"] == "success"
+    assert repaired_intent["txid"] == txid
+    assert repaired_intent["broadcast"] == 1
+    assert repaired_intent["error_message"] is None
+    with pytest.raises(InvalidAction):
+        service.demo_send(created["id"])
+    assert wallet.bond_send_calls == 1
+
+
+def test_mined_bond_repairs_attached_operation_lost_by_status_polling(
+    tmp_path, refund_address
+):
+    wallet = MissingAttachedBondWallet()
+    service = HushBoardService(live_settings(tmp_path, "missing-opid.db"), wallet=wallet)
+    created = service.create_submission(
+        "Lost opid", "A mined receipt must repair an ambiguously missing operation.", refund_address
+    )
+    launched = service.demo_send(created["id"])
+    assert launched["operation"]["id"] == wallet.operation_id
+
+    for _ in range(3):
+        service._poll_operations(counters())
+    submission_id = service.db.get_submission(created["id"])["id"]
+    missing = service.db.operations_for_submission(submission_id)[0]
+    assert missing["status"] == "failed"
+    assert missing["missing_count"] == 3
+    assert "no longer known" in missing["error_message"]
+
+    txid = "92" * 32
+    wallet.transactions = [
+        tx(txid, wallet.address, memo=created["invoice"]["memo"], height=321)
+    ]
+    wallet.details[txid] = {"status": "mined", "confirmations": 5}
+    result = service.sync()
+
+    repaired = service.db.operations_for_submission(submission_id)[0]
+    assert result["operations_updated"] == 1
+    assert service.get_submission(created["id"])["status"] == "moderation"
+    assert repaired["operation_id"] == wallet.operation_id
+    assert repaired["status"] == "success"
+    assert repaired["txid"] == txid
+    assert repaired["broadcast"] == 1
+    assert repaired["missing_count"] == 0
+    assert repaired["error_message"] is None
+    assert wallet.bond_send_calls == 1
+
+
+def test_explicit_broadcast_false_operation_is_not_upgraded_by_late_bond(
+    tmp_path, refund_address
+):
+    wallet = MissingAttachedBondWallet(broadcast_false=True)
+    service = HushBoardService(live_settings(tmp_path, "negative-opid.db"), wallet=wallet)
+    created = service.create_submission(
+        "Definite negative", "Explicit broadcast false remains a failed operation.", refund_address
+    )
+    service.demo_send(created["id"])
+    service._poll_operations(counters())
+
+    txid = "91" * 32
+    wallet.transactions = [
+        tx(txid, wallet.address, memo=created["invoice"]["memo"], height=322)
+    ]
+    wallet.details[txid] = {"status": "mined", "confirmations": 5}
+    service._scan_operator_transactions(counters())
+
+    submission_id = service.db.get_submission(created["id"])["id"]
+    operation = service.db.operations_for_submission(submission_id)[0]
+    assert service.get_submission(created["id"])["bond"]["txid"] == txid
+    assert operation["status"] == "failed"
+    assert operation["broadcast"] == 0
+    assert "broadcast was false" in operation["error_message"]
+    assert wallet.bond_send_calls == 1
 
 
 def test_wrong_amount_and_memo_are_quarantined_then_exact_output_can_bind(tmp_path, refund_address):
@@ -86,6 +284,67 @@ def test_wrong_amount_and_memo_are_quarantined_then_exact_output_can_bind(tmp_pa
     reasons = {row["mismatch_reason"] for row in outputs if row["mismatch_reason"]}
     assert any("wrong_amount" in reason for reason in reasons)
     assert any("memo_mismatch" in reason for reason in reasons)
+
+
+def test_exact_looking_outgoing_note_cannot_bind_as_incoming_bond(
+    tmp_path, refund_address
+):
+    wallet = ScanWallet()
+    service = HushBoardService(live_settings(tmp_path, "direction.db"), wallet=wallet)
+    created = service.create_submission(
+        "Direction", "Only an operator-account receipt can satisfy the invoice.", refund_address
+    )
+    memo = created["invoice"]["memo"]
+    spoof_txid = "34" * 32
+    spoof = tx(spoof_txid, wallet.address, memo=memo)
+    spoof["sent_note_count"] = 1
+    spoof["outputs"][0]["from_account"] = ACCOUNT_UUID
+    spoof["outputs"][0]["to_account"] = None
+    wallet.transactions = [spoof]
+    wallet.details[spoof_txid] = {"status": "mined", "confirmations": 10}
+
+    service._scan_operator_transactions(counters())
+    rejected = service.get_submission(created["id"])
+    assert rejected["bond"]["txid"] is None
+    assert rejected["status"] == "mismatch"
+
+    valid_txid = "35" * 32
+    wallet.transactions.append(tx(valid_txid, wallet.address, memo=memo))
+    wallet.details[valid_txid] = {"status": "mined", "confirmations": 10}
+    service._scan_operator_transactions(counters())
+    assert service.get_submission(created["id"])["bond"]["txid"] == valid_txid
+
+
+def test_bond_needs_mined_status_and_positive_non_bool_height_for_moderation(
+    tmp_path, refund_address
+):
+    wallet = ScanWallet()
+    service = HushBoardService(live_settings(tmp_path, "mined-proof.db"), wallet=wallet)
+    created = service.create_submission(
+        "Mined proof", "Confirmation counts alone must not unlock moderation.", refund_address
+    )
+    txid = "36" * 32
+    transaction = tx(txid, wallet.address, memo=created["invoice"]["memo"])
+    wallet.transactions = [transaction]
+    wallet.details[txid] = {"status": "waiting", "confirmations": 99}
+
+    service._scan_operator_transactions(counters())
+    assert service.get_submission(created["id"])["status"] == "bond_pending"
+
+    wallet.details[txid] = {"status": "mined", "confirmations": 99}
+    transaction["mined_height"] = True
+    service._scan_operator_transactions(counters())
+    assert service.get_submission(created["id"])["status"] == "bond_pending"
+
+    transaction["mined_height"] = 0
+    service._scan_operator_transactions(counters())
+    assert service.get_submission(created["id"])["status"] == "bond_pending"
+
+    transaction["mined_height"] = 100
+    service._scan_operator_transactions(counters())
+    confirmed = service.get_submission(created["id"])
+    assert confirmed["status"] == "moderation"
+    assert confirmed["bond"]["tx_status"] == "mined"
 
 
 def test_duplicate_exact_output_never_rebinds_first_bond(tmp_path, refund_address):

@@ -94,8 +94,8 @@ if [ "${HUSHBOARD_MODE:-}" != mock ]; then
   export HUSHBOARD_MODE=live
 fi
 
-say 'Python bagimliliklari dogrulaniyor.'
-uv sync --locked --quiet
+say 'Python runtime bagimliliklari dogrulaniyor.'
+uv sync --locked --no-dev --quiet
 
 if [ "${HUSHBOARD_MODE:-}" = mock ]; then
   export HUSHBOARD_WATCH_INTERVAL=0
@@ -120,7 +120,7 @@ PY
   fi
   export HUSHBOARD_DB="$OFFLINE_DB"
   say 'Immutable snapshot ayri offline DB kopyasina yukleniyor; wallet RPC kullanilmayacak.'
-  uv run python scripts/load-offline-snapshot.py \
+  uv run --no-sync python scripts/load-offline-snapshot.py \
     --snapshot "$SNAPSHOT" --db "$OFFLINE_DB" --protect-db "$LIVE_DB_PATH" >/dev/null
 fi
 
@@ -137,4 +137,4 @@ if [ "${HUSHBOARD_NO_BROWSER:-0}" != 1 ]; then
   ) &
 fi
 say "Demo aciliyor: $URL  (kapatmak icin Ctrl+C)"
-exec uv run uvicorn app.main:app --host "$HOST" --port "$PORT"
+exec uv run --no-sync uvicorn app.main:app --host "$HOST" --port "$PORT"

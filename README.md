@@ -1,5 +1,7 @@
 # HushBoard
 
+[![CI](https://github.com/apo110-dev/HushBoard/actions/workflows/ci.yml/badge.svg)](https://github.com/apo110-dev/HushBoard/actions/workflows/ci.yml)
+
 > **Hesap açmadan geri bildirim; 0,01 TAZ iade edilebilir testnet teminatıyla.**
 
 HushBoard, isim/e-posta istemeyen bir geri bildirim panosudur. Gönderen kişi `0,01 TAZ`
@@ -9,6 +11,26 @@ işlemle iade edilir; gönderim ağ ücreti iade edilmez. Spam için teminat iad
 
 Bu depozito **merkezî ve custodial** bir MVP politikasıdır. Smart contract, trustless
 escrow veya mutlak anonimlik iddiası yoktur.
+
+![HushBoard operatör paneli](static/hushboard-proof.png)
+
+> [!WARNING]
+> Yalnız Zcash **testnet** içindir. Gerçek ZEC, production custody veya gerçek kullanıcı
+> verisiyle kullanmayın.
+
+## Hızlı deneme — wallet ve Docker gerektirmez
+
+Linux, Python `>=3.11,<3.14`, [`uv`](https://docs.astral.sh/uv/), Git ve `curl` ile:
+
+```bash
+git clone https://github.com/apo110-dev/HushBoard.git
+cd HushBoard
+HUSHBOARD_MODE=mock ./START_DEMO.sh
+```
+
+Bu yol checked-in, sanitize edilmiş snapshot'ın disposable bir SQLite kopyasını açar;
+wallet RPC çağırmaz, testnet işlemi yayınlamaz ve tüm mutation kontrollerini kapatır.
+Tarayıcı açılmazsa `http://127.0.0.1:4173` adresine gidin.
 
 ## Demoda gösterilen gerçek parçalar
 
@@ -34,19 +56,31 @@ Operatör paneli sağ üst bağlantıda veya doğrudan
 `http://127.0.0.1:4173/#console` adresindedir. Durdurmak için `Ctrl+C`.
 
 5 slaytlık sunum: `http://127.0.0.1:4173/static/deck.html`.
-45 saniyelik hibrit video kurgusu: [`VIDEO_SUNUM.md`](VIDEO_SUNUM.md). Sessiz Kling B-roll, deterministik evidence, ayrı Türkçe voice ve doğrulanmış final paket: [`VIDEO_PAKETI/`](VIDEO_PAKETI/README.md).
+45 saniyelik hibrit video kaynakları: [`VIDEO_SUNUM.md`](VIDEO_SUNUM.md). Sessiz Kling B-roll, deterministik evidence ve ayrı Türkçe voice için yeniden üretim paketi: [`VIDEO_PAKETI/`](VIDEO_PAKETI/README.md). Generated final video Git'e dahil değildir.
 Wallet servislerini de durdurmak isterseniz `./STOP_WALLETS.sh`; Zebra'yı senkron
 kalması için özellikle durdurmaz.
 
-Pinned Docker imajı Rust gerektirmez. Zallet'i yalnız kaynak koddan derleyecekseniz
-önce repository'nin toolchain'ini kurun: `rustup toolchain install 1.91 --component rustfmt`;
-ardından `cargo +1.91 build --release` çalıştırın (veya `cargo build --release` ile
-`rust-toolchain.toml` seçimine izin verin).
+Pinned Zallet Docker imajı `linux/amd64` içindir ve Rust gerektirmez. Zallet'i kaynak koddan
+derlemek isterseniz önce ayrı upstream checkout'a geçin:
+
+```bash
+git clone --branch v0.1.0-beta.2 --depth 1 https://github.com/zcash/zallet.git
+cd zallet
+rustup toolchain install 1.91 --component rustfmt
+cargo +1.91 build --release
+```
 
 ### Sahne öncesi zorunlu kontrol
 
 ```bash
 ./scripts/preflight.sh
+```
+
+Public varsayılanda gerçek gönderimler kapalıdır. Yalnız wallet'lar fonlandıktan ve preflight
+başarılı olduktan sonra prova için açıkça etkinleştirin:
+
+```bash
+HUSHBOARD_ENABLE_LIVE_SENDS=1 ./START_DEMO.sh
 ```
 
 Startup, yeniden yaratılmış Zallet container'larının tip'e yetişmesi için dört dakikaya kadar
@@ -58,7 +92,8 @@ yeni Zebra testnet senkronu saatler sürebilir. İlk kurulum en az bir gün önc
 ./scripts/bootstrap-testnet-wallets.sh
 ```
 
-Gereksinimler: Linux, Git, Docker + Compose 2.24.6+, `curl`, Python 3.11+ ve `uv`. Zallet RPC'leri
+Gereksinimler: `linux/amd64`, Git, Docker + Compose 2.24.6+, `curl`, Python
+`>=3.11,<3.14` ve `uv`. Zallet RPC'leri
 (`41232`, `41233`), Zebra RPC/health (`18232`, `18080`) ve web app yalnız loopback'e
 bind edilir; yalnız Zebra P2P `18233` testnet peer'ları için public kalır. Wallet cookie ve
 seed verileri `.runtime/` ve Docker volume'larında kalır. Z3 checkout ve Zebra image digest'i
@@ -189,13 +224,17 @@ iadeyi geciktirebilir veya politikasını ihlal edebilir.
 ## Geliştirme
 
 ```bash
-uv sync --locked
+uv sync --locked --all-groups
+uv run ruff check app tests scripts VIDEO_PAKETI/source
 uv run pytest
 uv run uvicorn app.main:app --host 127.0.0.1 --port 4173
 ```
 
+Makine tarafından okunabilir OpenAPI şeması: `http://127.0.0.1:4173/api/openapi.json`.
+Strict CSP nedeniyle üçüncü taraf asset kullanan Swagger UI bilerek sunulmaz.
+
 Testler wallet RPC'yi mock'lar ve gerçek TAZ harcamaz. Live send'ler ayrıca
-`HUSHBOARD_ENABLE_LIVE_SENDS=1` ile açılır; backend mainnet'i varsayılan olarak reddeder.
+`HUSHBOARD_ENABLE_LIVE_SENDS=1` ile açılır; backend mainnet'i koşulsuz olarak reddeder.
 
 ## GitHub'a göndermeden önce
 
@@ -212,6 +251,13 @@ Paylaşılacak arşivi yalnız Git index'inden üretin:
 ```bash
 git archive --format=zip --output=../HushBoard-public.zip HEAD
 ```
+
+## Katkı, güvenlik ve lisans
+
+Katkı akışı için [`CONTRIBUTING.md`](CONTRIBUTING.md), güvenlik sınırı ve özel raporlama
+kanalı için [`SECURITY.md`](SECURITY.md) dosyasına bakın. Kod MIT lisanslıdır:
+[`LICENSE`](LICENSE). Redistributed font bildirimleri [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+dosyasındadır.
 
 ## Kaynaklar
 

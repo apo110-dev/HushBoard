@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, math, subprocess, random
+
+import argparse
+import random
+import subprocess
 from functools import lru_cache
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageChops
+
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 W,H,FPS,DURATION=1920,1080,30,15
 ROOT=Path(__file__).resolve().parents[1]

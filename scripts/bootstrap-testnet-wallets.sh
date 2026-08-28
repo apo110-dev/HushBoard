@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE=(docker compose -f "$ROOT/infra/compose.wallets.yml")
@@ -57,6 +58,7 @@ initialize_wallet() {
     "${COMPOSE[@]}" run --rm --no-deps "$service" \
       --datadir /var/lib/zallet --config /etc/zallet/zallet.toml \
       generate-mnemonic | tee "$RUNTIME/$marker.seedfp"
+    chmod 600 "$RUNTIME/$marker.seedfp"
     docker run --rm -v "$volume":/data "$ALPINE_IMAGE" sh -c \
       'touch /data/.hushboard-initialized && chown 1000:1000 /data/.hushboard-initialized'
   fi

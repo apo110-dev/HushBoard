@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import math, random, struct, wave
+
+import math
+import random
+import struct
+import wave
 from pathlib import Path
+
 SR=48000;DUR=15;N=SR*DUR
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'generated'/'v2'/'sfx';OUT.mkdir(parents=True,exist_ok=True)

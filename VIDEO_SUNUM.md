@@ -1,17 +1,15 @@
 # HushBoard V2 — 45 saniyelik tanıtım videosu
 
-Nihai video paketi: [`VIDEO_PAKETI/`](VIDEO_PAKETI/README.md)
+Yeniden üretim paketi: [`VIDEO_PAKETI/`](VIDEO_PAKETI/README.md)
 Yönetmen planı: [`VIDEO_PAKETI/STORYBOARD.md`](VIDEO_PAKETI/STORYBOARD.md)
 
-## Ana teslim
+## Yerel çıktı (Git'e dahil değildir)
+
+Ara ve final render'lar bilerek `VIDEO_PAKETI/generated/` altında ignore edilir. Üretim akışı
+başarıyla tamamlandığında beklenen ana çıktılar:
 
 ```text
 VIDEO_PAKETI/generated/v2/final/HushBoard-V2-45s.mp4
-```
-
-Opsiyonel altyazılı sürüm:
-
-```text
 VIDEO_PAKETI/generated/v2/final/HushBoard-V2-45s-subtitled.mp4
 ```
 

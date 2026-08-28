@@ -40,11 +40,22 @@ remain outside the Zcash payment-layer guarantee.
   the payer or ZIP-321.
 - Normal sends use `FullPrivacy`. There is no automatic privacy-policy downgrade.
 - `refund_broadcast` requires a successful persisted operation result with a real txid.
-  Unknown/crashed operations fail closed and require reconciliation; retries are not automatic.
+  Unknown/crashed launches never resend automatically; they recover only from exact mined
+  wallet evidence with matching account direction, receiver, amount, memo, and height.
 - Incoming outputs are idempotent on `(txid, pool, output_index)`.
+
+## Supported versions
+
+Only the latest commit on `main` and the latest GitHub release receive security fixes. Older
+prototype snapshots are unsupported.
 
 ## Reporting
 
-Do not include wallet cookies, mnemonics, full refund UAs or runtime archives in reports.
-For this local prototype, document a finding privately to the repository owner with a minimal
-reproduction and sanitized logs.
+Use GitHub's private **Security → Report a vulnerability** flow:
+<https://github.com/apo110-dev/HushBoard/security/advisories/new>. If that flow is unavailable,
+contact the repository owner through their GitHub profile to request a private channel **without
+including vulnerability details**. Do not open a public issue for an unpatched vulnerability.
+
+Never include wallet cookies, mnemonics, seeds, full refund/invoice UAs, private feedback, raw
+wallet responses, databases, or runtime archives. Provide a minimal reproduction with sanitized
+logs. Reports are handled on a best-effort basis for this non-production prototype.

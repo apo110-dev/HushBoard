@@ -116,6 +116,8 @@ def test_repository_static_spa_is_served_at_root(settings):
         assert asset.status_code == 200
         assert b"/submissions" in asset.content
         assert client.get("/api/health").status_code == 200
+        assert client.get("/api/openapi.json").status_code == 200
+        assert client.get("/api/docs").status_code == 404
 
 def test_remote_client_is_rejected_even_with_a_loopback_host_header(settings):
     api = create_app(settings, service=HushBoardService(settings))

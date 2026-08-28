@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import base64
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
-from zcash_uri import TransactionRequest
 
 from app.config import Settings
 from app.service import FeatureDisabled, HushBoardService
@@ -78,9 +79,14 @@ def test_checked_in_offline_snapshot_is_separate_labeled_and_read_only(tmp_path)
     }
 
     real_capture = service.get_submission("g9825ru2tr4f")
-    parsed_payment = TransactionRequest.from_uri(real_capture["invoice"]["uri"]).payments()[0]
-    assert parsed_payment.amount_zatoshis == 1_000_000
-    assert parsed_payment.memo_text == "HB1:g9825ru2tr4f"
+    parsed_payment = urlparse(real_capture["invoice"]["uri"])
+    query = parse_qs(parsed_payment.query, strict_parsing=True)
+    encoded_memo = query["memo"][0]
+    decoded_memo = base64.urlsafe_b64decode(encoded_memo + "=" * (-len(encoded_memo) % 4))
+    assert parsed_payment.scheme == "zcash"
+    assert parsed_payment.path == real_capture["invoice"]["address"]
+    assert query["amount"] == ["0.01000000"]
+    assert decoded_memo.decode("utf-8") == "HB1:g9825ru2tr4f"
 
     before = [(row["id"], row["status"], row["updated_at"]) for row in listing["items"]]
     sync_result = service.sync()

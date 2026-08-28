@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from io import BytesIO
 from typing import Any
+from uuid import UUID
 
 from .config import Settings
 from .database import STATUSES, Database, NotFound, StateConflict
@@ -29,6 +30,11 @@ from .wallet import (
 _PUBLIC_ID_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 _PUBLIC_ID_RE = re.compile(r"^[a-z2-9]{12}$")
 _TXID_RE = re.compile(r"^[0-9a-f]{64}$")
+_INTENT_PREFIX = "intent-"
+_LAUNCH_UNKNOWN_ERROR = "wallet launch outcome is unknown; manual reconciliation is required"
+_OPERATION_MISSING_ERROR = (
+    "operation is no longer known to Zallet; manual reconciliation is required"
+)
 _STATUS_LABELS = {
     "awaiting_bond": "Awaiting bond",
     "bond_pending": "Bond pending",
@@ -123,6 +129,11 @@ class HushBoardService:
         self._mode_reason: str | None = None
         self._mode_lock = threading.Lock()
         self._sync_lock = threading.Lock()
+        # A committed intent exists before any wallet side effect. This in-memory set
+        # only protects an intent that is still being launched by this process; after a
+        # restart, sync can classify the durable orphan as an unknown outcome.
+        self._launch_lock = threading.Lock()
+        self._launching_intents: set[str] = set()
         self.watcher_running = False
         self.watcher_error: str | None = None
         self._offline_evidence_kinds: dict[str, str] | None = None
@@ -382,6 +393,9 @@ class HushBoardService:
         refund_operation = next(
             (op for op in reversed(operations) if op["kind"] == "refund"), None
         )
+        bond_send_operation = next(
+            (op for op in reversed(operations) if op["kind"] == "bond_send"), None
+        )
         timeline: list[dict[str, Any]] = []
         if include_timeline:
             for event in self.db.timeline(row["id"]):
@@ -403,6 +417,18 @@ class HushBoardService:
         qr_svg = _qr_svg_data_url(row["zip321_uri"])
         bond_explorer = self.explorer_url(row["bond_txid"], demo=demo)
         refund_explorer = self.explorer_url(row["refund_txid"], demo=demo)
+        refund_operation_id = row["refund_operation_id"]
+        if (
+            isinstance(refund_operation_id, str)
+            and self._is_launch_intent(refund_operation_id)
+            and (
+                refund_operation is None
+                or refund_operation["status"] in {"queued", "executing"}
+            )
+        ):
+            # This provisional primary key can be atomically replaced by Zallet's id.
+            # Expose the pending status, but never a transient identifier.
+            refund_operation_id = None
         return {
             "id": row["public_id"],
             "public_id": row["public_id"],
@@ -440,7 +466,7 @@ class HushBoardService:
                 "explorer_url": bond_explorer,
             },
             "refund": {
-                "operation_id": row["refund_operation_id"],
+                "operation_id": refund_operation_id,
                 "operation_status": refund_operation["status"] if refund_operation else None,
                 "txid": row["refund_txid"],
                 "confirmations": row["refund_confirmations"],
@@ -464,6 +490,7 @@ class HushBoardService:
                 not self.offline_snapshot
                 and row["status"] in {"awaiting_bond", "mismatch", "failure"}
                 and not row["bond_txid"]
+                and bond_send_operation is None
             ),
             "can_moderate": (
                 not self.offline_snapshot
@@ -475,15 +502,289 @@ class HushBoardService:
     def _operation_public(self, operation: sqlite3.Row | dict[str, Any], *, demo: bool) -> dict[str, Any]:
         get = operation.__getitem__
         txid = get("txid")
+        status = get("status")
+        operation_id = get("operation_id")
+        if self._is_launch_intent(operation_id) and status in {"queued", "executing"}:
+            operation_id = None
         return {
-            "id": get("operation_id"),
+            "id": operation_id,
             "kind": get("kind"),
-            "status": get("status"),
+            "status": status,
             "txid": txid,
             "broadcast": None if get("broadcast") is None else bool(get("broadcast")),
             "error": get("error_message"),
             "explorer_url": self.explorer_url(txid, demo=demo),
         }
+
+    @staticmethod
+    def _send_request_key(submission_id: int, kind: str) -> str:
+        return f"{kind}:{submission_id}"
+
+    @staticmethod
+    def _is_launch_intent(operation_id: str) -> bool:
+        return operation_id.startswith(_INTENT_PREFIX)
+
+    @staticmethod
+    def _canonical_account_uuid(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            canonical = str(UUID(value))
+        except (ValueError, AttributeError):
+            return None
+        return canonical if value.lower() == canonical else None
+
+    @staticmethod
+    def _is_positive_int(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    def _mined_evidence_txid(self, submission: sqlite3.Row, kind: str) -> str | None:
+        if kind == "bond_send":
+            txid = submission["bond_txid"]
+            if (
+                isinstance(txid, str)
+                and submission["bond_tx_status"] == "mined"
+                and self._is_positive_int(submission["bond_mined_height"])
+            ):
+                return txid
+            return None
+        txid = submission["refund_txid"]
+        if isinstance(txid, str) and submission["refund_tx_status"] == "mined":
+            return txid
+        return None
+
+    def _operation_accepts_late_evidence(self, operation: sqlite3.Row) -> bool:
+        """Distinguish ambiguous loss from an explicit negative wallet result."""
+        if operation["status"] in {"queued", "executing"}:
+            return operation["broadcast"] != 0
+        if operation["status"] != "failed" or operation["broadcast"] is not None:
+            return False
+        if operation["error_code"] is not None:
+            return False
+        if self._is_launch_intent(operation["operation_id"]):
+            return operation["error_message"] == _LAUNCH_UNKNOWN_ERROR
+        return (
+            operation["missing_count"] >= 3
+            and operation["error_message"] == _OPERATION_MISSING_ERROR
+        )
+
+    def _repair_operation_from_chain_evidence(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        submission_id: int,
+        kind: str,
+        txid: str,
+        counters: dict[str, Any],
+    ) -> bool:
+        operations = conn.execute(
+            "SELECT * FROM operations WHERE submission_id=? AND kind=? "
+            "ORDER BY created_at DESC,operation_id DESC",
+            (submission_id, kind),
+        ).fetchall()
+        for operation in operations:
+            if operation["txid"] not in {None, txid}:
+                continue
+            if not self._operation_accepts_late_evidence(operation):
+                continue
+            conn.execute(
+                "UPDATE operations SET status='success',txid=?,txids_json=?,broadcast=1,"
+                "error_code=NULL,error_message=NULL,missing_count=0,updated_at=? "
+                "WHERE operation_id=?",
+                (txid, json.dumps([txid]), utc_now(), operation["operation_id"]),
+            )
+            counters["operations_updated"] += 1
+            return True
+        return False
+
+    def _reserve_bond_launch(
+        self, submission_id: int
+    ) -> tuple[sqlite3.Row, sqlite3.Row, bool]:
+        """Atomically reserve the one participant send allowed for an invoice."""
+        intent_id = _INTENT_PREFIX + secrets.token_hex(16)
+        request_key = self._send_request_key(submission_id, "bond_send")
+        with self._launch_lock:
+            self._launching_intents.add(intent_id)
+        try:
+            now = utc_now()
+            with self.db.transaction(immediate=True) as conn:
+                current = self.db.get_submission_by_id(submission_id, conn)
+                if (
+                    current["status"] not in {"awaiting_bond", "mismatch", "failure"}
+                    or current["bond_txid"]
+                ):
+                    raise InvalidAction("this invoice cannot receive another demo bond")
+                existing = conn.execute(
+                    "SELECT * FROM operations WHERE submission_id=? AND kind='bond_send' "
+                    "ORDER BY created_at,operation_id LIMIT 1",
+                    (submission_id,),
+                ).fetchone()
+                if existing is not None:
+                    with self._launch_lock:
+                        self._launching_intents.discard(intent_id)
+                    return current, existing, False
+                conn.execute(
+                    "INSERT INTO operations "
+                    "(operation_id,request_key,submission_id,kind,wallet_role,status,created_at,updated_at) "
+                    "VALUES (?,?,?,'bond_send','participant','executing',?,?)",
+                    (intent_id, request_key, submission_id, now, now),
+                )
+                operation = conn.execute(
+                    "SELECT * FROM operations WHERE operation_id=?", (intent_id,)
+                ).fetchone()
+                return current, operation, True
+        except Exception:
+            with self._launch_lock:
+                self._launching_intents.discard(intent_id)
+            raise
+
+    def _reserve_refund_launch(
+        self, submission_id: int, *, note: str | None
+    ) -> tuple[sqlite3.Row, sqlite3.Row, bool]:
+        """Persist a refund intent and moderator decision before calling Zallet."""
+        intent_id = _INTENT_PREFIX + secrets.token_hex(16)
+        request_key = self._send_request_key(submission_id, "refund")
+        with self._launch_lock:
+            self._launching_intents.add(intent_id)
+        try:
+            now = utc_now()
+            with self.db.transaction(immediate=True) as conn:
+                current = self.db.get_submission_by_id(submission_id, conn)
+                existing = conn.execute(
+                    "SELECT * FROM operations WHERE submission_id=? AND kind='refund' "
+                    "ORDER BY created_at,operation_id LIMIT 1",
+                    (submission_id,),
+                ).fetchone()
+                if existing is not None and current["moderation_decision"] == "refund":
+                    with self._launch_lock:
+                        self._launching_intents.discard(intent_id)
+                    return current, existing, False
+                if current["status"] != "moderation" or current["moderation_decision"] is not None:
+                    raise InvalidAction("only an undecided, confirmed submission can be moderated")
+                conn.execute(
+                    "INSERT INTO operations "
+                    "(operation_id,request_key,submission_id,kind,wallet_role,status,created_at,updated_at) "
+                    "VALUES (?,?,?,'refund','operator','executing',?,?)",
+                    (intent_id, request_key, submission_id, now, now),
+                )
+                reserved = self.db.transition_in_connection(
+                    conn,
+                    submission_id,
+                    "moderation",
+                    reason="refund_launch_reserved",
+                    now=now,
+                    updates={
+                        "moderation_decision": "refund",
+                        "moderation_note": note,
+                        "moderated_at": now,
+                        "refund_operation_id": intent_id,
+                        "refund_error": None,
+                        "status_detail": "Refund launch reserved durably; no broadcast evidence yet.",
+                    },
+                )
+                operation = conn.execute(
+                    "SELECT * FROM operations WHERE operation_id=?", (intent_id,)
+                ).fetchone()
+                return reserved, operation, True
+        except Exception:
+            with self._launch_lock:
+                self._launching_intents.discard(intent_id)
+            raise
+
+    def _attach_wallet_operation(
+        self,
+        *,
+        intent_id: str,
+        submission_id: int,
+        kind: str,
+        launched: Any,
+    ) -> tuple[sqlite3.Row, sqlite3.Row]:
+        """Replace a durable local intent with the RPC operation id atomically."""
+        now = utc_now()
+        with self.db.transaction(immediate=True) as conn:
+            intent = conn.execute(
+                "SELECT * FROM operations WHERE operation_id=?", (intent_id,)
+            ).fetchone()
+            if intent is None or intent["status"] != "executing":
+                raise InvalidAction("wallet launch reservation is no longer active")
+            cursor = conn.execute(
+                "UPDATE operations SET operation_id=?,wallet_role=?,status='queued',"
+                "missing_count=0,updated_at=? WHERE operation_id=? AND status='executing'",
+                (launched.operation_id, launched.wallet_role, now, intent_id),
+            )
+            if cursor.rowcount != 1:
+                raise InvalidAction("wallet launch reservation changed concurrently")
+            submission = self.db.get_submission_by_id(submission_id, conn)
+            if kind == "refund":
+                submission = self.db.transition_in_connection(
+                    conn,
+                    submission_id,
+                    "moderation",
+                    reason="refund_operation_queued",
+                    now=now,
+                    updates={
+                        "refund_operation_id": launched.operation_id,
+                        "refund_error": None,
+                        "status_detail": "Refund operation queued; awaiting broadcast evidence.",
+                    },
+                )
+            operation = conn.execute(
+                "SELECT * FROM operations WHERE operation_id=?", (launched.operation_id,)
+            ).fetchone()
+            return submission, operation
+
+    def _mark_launch_unknown(
+        self,
+        *,
+        intent_id: str,
+        submission_id: int,
+        kind: str,
+    ) -> None:
+        """Record an ambiguous launch failure without ever making it retryable."""
+        now = utc_now()
+        with self.db.transaction(immediate=True) as conn:
+            operation = conn.execute(
+                "SELECT * FROM operations WHERE operation_id=?", (intent_id,)
+            ).fetchone()
+            if operation is None:
+                return
+            submission = self.db.get_submission_by_id(submission_id, conn)
+            evidence_txid = self._mined_evidence_txid(submission, kind)
+            if evidence_txid:
+                # A watcher may have found chain evidence while the initiating request
+                # was timing out. Evidence wins over the ambiguous RPC exception.
+                conn.execute(
+                    "UPDATE operations SET status='success',txid=?,txids_json=?,broadcast=1,"
+                    "error_code=NULL,error_message=NULL,missing_count=0,updated_at=? "
+                    "WHERE operation_id=?",
+                    (evidence_txid, json.dumps([evidence_txid]), now, intent_id),
+                )
+                return
+            if operation["status"] == "success":
+                return
+            conn.execute(
+                "UPDATE operations SET status='failed',error_message=?,updated_at=? "
+                "WHERE operation_id=? AND status IN ('queued','executing')",
+                (_LAUNCH_UNKNOWN_ERROR, now, intent_id),
+            )
+            if submission["status"] in {"kept", "refunded", "refund_broadcast"}:
+                return
+            updates = {
+                "status_detail": "Wallet launch outcome is unknown; manual reconciliation is required."
+            }
+            if kind == "refund":
+                updates["refund_error"] = _LAUNCH_UNKNOWN_ERROR
+            try:
+                self.db.transition_in_connection(
+                    conn,
+                    submission_id,
+                    "failure",
+                    reason=f"{kind}_launch_outcome_unknown",
+                    now=now,
+                    updates=updates,
+                )
+            except StateConflict:
+                pass
 
     def demo_send(self, public_id: str) -> dict[str, Any]:
         self._reject_snapshot_mutation()
@@ -549,23 +850,46 @@ class HushBoardService:
             raise FeatureDisabled(
                 "live participant sends are disabled; set HUSHBOARD_ENABLE_LIVE_SENDS=1 deliberately"
             )
+        reserved, operation, launch_required = self._reserve_bond_launch(row["id"])
+        if not launch_required:
+            if self._is_launch_intent(operation["operation_id"]) and operation[
+                "status"
+            ] in {"queued", "executing"}:
+                # The winning request may replace this provisional primary key with
+                # Zallet's operation id at any moment. Do not hand a caller an id that
+                # can disappear; a 409 tells it to retry the resource after the launch.
+                raise InvalidAction("wallet launch is already in progress; retry shortly")
+            return {
+                "mode": "live",
+                "mode_label": self.mode_label,
+                "submission": self.serialize_submission(reserved, include_timeline=True),
+                "operation": self._operation_public(operation, demo=False),
+            }
+
+        intent_id = operation["operation_id"]
         try:
-            launched = self.wallet.send_bond(row["invoice_address"], row["memo"])
-        except WalletError as exc:
-            raise WalletUnavailable(_safe_error(exc)) from exc
-        self.db.create_operation(
-            operation_id=launched.operation_id,
-            submission_id=row["id"],
-            kind="bond_send",
-            wallet_role="participant",
-            status="queued",
-            now=now,
-        )
-        operation = self.db.operations_for_submission(row["id"])[-1]
+            try:
+                launched = self.wallet.send_bond(reserved["invoice_address"], reserved["memo"])
+            except WalletError as exc:
+                self._mark_launch_unknown(
+                    intent_id=intent_id,
+                    submission_id=reserved["id"],
+                    kind="bond_send",
+                )
+                raise WalletUnavailable(_safe_error(exc)) from exc
+            updated, operation = self._attach_wallet_operation(
+                intent_id=intent_id,
+                submission_id=reserved["id"],
+                kind="bond_send",
+                launched=launched,
+            )
+        finally:
+            with self._launch_lock:
+                self._launching_intents.discard(intent_id)
         return {
             "mode": "live",
             "mode_label": self.mode_label,
-            "submission": self.get_submission(public_id),
+            "submission": self.serialize_submission(updated, include_timeline=True),
             "operation": self._operation_public(operation, demo=False),
         }
 
@@ -573,7 +897,13 @@ class HushBoardService:
         self._reject_snapshot_mutation()
         self._validate_public_id(public_id)
         row = self.db.get_submission(public_id)
-        if row["status"] != "moderation" or row["moderation_decision"] is not None:
+        if decision not in {"refund", "keep"}:
+            raise InputRejected("decision must be refund or keep")
+        # Mock decisions and keep decisions remain single-shot. A live refund retry is
+        # handled by its durable operation intent below and returns that same intent.
+        if (decision == "keep" or bool(row["demo"])) and (
+            row["status"] != "moderation" or row["moderation_decision"] is not None
+        ):
             raise InvalidAction("only an undecided, confirmed submission can be moderated")
         now = utc_now()
         if decision == "keep":
@@ -600,9 +930,6 @@ class HushBoardService:
                 "submission": self.serialize_submission(updated, include_timeline=True),
                 "operation": None,
             }
-        if decision != "refund":
-            raise InputRejected("decision must be refund or keep")
-
         if bool(row["demo"]):
             operation_id = mock_operation_id()
             txid = mock_txid()
@@ -653,64 +980,45 @@ class HushBoardService:
             raise FeatureDisabled(
                 "live refunds are disabled; set HUSHBOARD_ENABLE_LIVE_SENDS=1 deliberately"
             )
-        # Reserve the moderator decision while deliberately remaining in `moderation`.
-        # `refund_broadcast` is evidence-bearing: it is entered only after Zallet reports
-        # success with a concrete txid and does not report broadcast=false.
-        with self.db.transaction(immediate=True) as conn:
-            current = self.db.get_submission_by_id(row["id"], conn)
-            if current["status"] != "moderation" or current["moderation_decision"] is not None:
-                raise InvalidAction("submission was already moderated")
-            reserved = self.db.transition_in_connection(
-                conn,
-                row["id"],
-                "moderation",
-                reason="refund_launch_reserved",
-                now=now,
-                updates={
-                    "moderation_decision": "refund",
-                    "moderation_note": note,
-                    "moderated_at": now,
-                    "status_detail": "Refund is being built; no broadcast evidence yet.",
-                },
-            )
-        try:
-            launched = self.wallet.send_refund(reserved["refund_address"], reserved["memo"])
-        except WalletError as exc:
-            error = _safe_error(exc)
-            self.db.transition(
-                public_id,
-                "failure",
-                reason="refund_launch_failed",
-                now=utc_now(),
-                updates={"refund_error": error, "status_detail": "Refund launch failed."},
-            )
-            raise WalletUnavailable(error) from exc
+        # The moderator decision and a unique local operation intent commit together.
+        # `refund_broadcast` remains evidence-bearing and is entered only after Zallet
+        # reports success with a concrete txid and does not report broadcast=false.
+        reserved, operation, launch_required = self._reserve_refund_launch(
+            row["id"], note=note
+        )
+        if not launch_required:
+            if self._is_launch_intent(operation["operation_id"]) and operation[
+                "status"
+            ] in {"queued", "executing"}:
+                raise InvalidAction("wallet launch is already in progress; retry shortly")
+            return {
+                "mode": "live",
+                "submission": self.serialize_submission(reserved, include_timeline=True),
+                "operation": self._operation_public(operation, demo=False),
+            }
 
-        with self.db.transaction(immediate=True) as conn:
-            current = self.db.get_submission_by_id(row["id"], conn)
-            if current["status"] != "moderation" or current["moderation_decision"] != "refund":
-                # The operation exists and must be persisted for reconciliation even if
-                # an operator changed state out-of-band; never launch a replacement.
-                raise InvalidAction("reserved refund state changed during wallet launch")
-            conn.execute(
-                "INSERT INTO operations "
-                "(operation_id,submission_id,kind,wallet_role,status,created_at,updated_at) "
-                "VALUES (?,?, 'refund','operator','queued',?,?)",
-                (launched.operation_id, row["id"], now, now),
+        intent_id = operation["operation_id"]
+        try:
+            try:
+                launched = self.wallet.send_refund(
+                    reserved["refund_address"], reserved["memo"]
+                )
+            except WalletError as exc:
+                self._mark_launch_unknown(
+                    intent_id=intent_id,
+                    submission_id=reserved["id"],
+                    kind="refund",
+                )
+                raise WalletUnavailable(_safe_error(exc)) from exc
+            updated, operation = self._attach_wallet_operation(
+                intent_id=intent_id,
+                submission_id=reserved["id"],
+                kind="refund",
+                launched=launched,
             )
-            updated = self.db.transition_in_connection(
-                conn,
-                row["id"],
-                "moderation",
-                reason="refund_operation_queued",
-                now=now,
-                updates={
-                    "refund_operation_id": launched.operation_id,
-                    "refund_error": None,
-                    "status_detail": "Refund operation queued; awaiting broadcast evidence.",
-                },
-            )
-        operation = self.db.operations_for_submission(row["id"])[-1]
+        finally:
+            with self._launch_lock:
+                self._launching_intents.discard(intent_id)
         return {
             "mode": "live",
             "submission": self.serialize_submission(updated, include_timeline=True),
@@ -745,6 +1053,9 @@ class HushBoardService:
                 self._poll_operations(counters)
                 self._scan_operator_transactions(counters)
                 self._reconcile_refunds(counters)
+                # Give normal operation polling and on-chain receipt matching the first
+                # chance to supply evidence before classifying an orphaned local intent.
+                self._reconcile_launch_intents(counters)
             now = utc_now()
             self.db.set_meta("last_sync_at", now, now=now)
             counters["synced_at"] = now
@@ -804,8 +1115,105 @@ class HushBoardService:
                 )
                 counters["submissions_updated"] += 1
 
+    def _reconcile_launch_intents(self, counters: dict[str, Any]) -> None:
+        """Fail closed after an orphaned launch, but let later evidence repair it."""
+        with self._launch_lock:
+            locally_launching = set(self._launching_intents)
+        grace_seconds = max(30.0, self.settings.rpc_timeout + 5.0)
+        now_dt = datetime.now(UTC)
+        # Failed provisional ids remain deliberately non-retryable, but they must stay
+        # eligible for repair if a later wallet scan proves that the timed-out launch
+        # actually reached the chain.
+        with self.db.connection() as conn:
+            intents = conn.execute(
+                "SELECT * FROM operations WHERE operation_id GLOB 'intent-*' "
+                "AND status IN ('queued','executing','failed') ORDER BY created_at"
+            ).fetchall()
+        for op in intents:
+            if op["operation_id"] in locally_launching:
+                continue
+            try:
+                created = datetime.fromisoformat(str(op["created_at"]))
+                stale = (now_dt - created).total_seconds() >= grace_seconds
+            except (TypeError, ValueError):
+                stale = True
+
+            now = utc_now()
+            with self.db.transaction(immediate=True) as conn:
+                current_op = conn.execute(
+                    "SELECT * FROM operations WHERE operation_id=?",
+                    (op["operation_id"],),
+                ).fetchone()
+                if current_op is None or current_op["status"] not in {
+                    "queued",
+                    "executing",
+                    "failed",
+                }:
+                    continue
+                submission = self.db.get_submission_by_id(current_op["submission_id"], conn)
+                evidence_txid = self._mined_evidence_txid(
+                    submission, current_op["kind"]
+                )
+                if evidence_txid:
+                    if self._operation_accepts_late_evidence(current_op):
+                        conn.execute(
+                            "UPDATE operations SET status='success',txid=?,txids_json=?,"
+                            "broadcast=1,error_code=NULL,error_message=NULL,missing_count=0,"
+                            "updated_at=? WHERE operation_id=?",
+                            (
+                                evidence_txid,
+                                json.dumps([evidence_txid]),
+                                now,
+                                current_op["operation_id"],
+                            ),
+                        )
+                        counters["operations_updated"] += 1
+                    continue
+                if current_op["status"] == "failed":
+                    # This is the durable fail-closed state: never manufacture a new
+                    # wallet call merely because reconciliation still lacks evidence.
+                    continue
+                if not stale:
+                    counters["warnings"].append(
+                        "wallet launch reservation is awaiting reconciliation"
+                    )
+                    continue
+
+                conn.execute(
+                    "UPDATE operations SET status='failed',error_message=?,updated_at=? "
+                    "WHERE operation_id=?",
+                    (_LAUNCH_UNKNOWN_ERROR, now, current_op["operation_id"]),
+                )
+                counters["operations_updated"] += 1
+                if submission["status"] in {"kept", "refunded", "refund_broadcast"}:
+                    continue
+                updates = {
+                    "status_detail": (
+                        "Wallet launch outcome is unknown; manual reconciliation is required."
+                    )
+                }
+                if current_op["kind"] == "refund":
+                    updates["refund_error"] = _LAUNCH_UNKNOWN_ERROR
+                try:
+                    self.db.transition_in_connection(
+                        conn,
+                        submission["id"],
+                        "failure",
+                        reason=f"{current_op['kind']}_launch_intent_orphaned",
+                        now=now,
+                        updates=updates,
+                    )
+                    counters["submissions_updated"] += 1
+                except StateConflict:
+                    pass
+
     def _poll_operations(self, counters: dict[str, Any]) -> None:
-        active = [op for op in self.db.active_operations() if op["wallet_role"] != "mock"]
+        active = [
+            op
+            for op in self.db.active_operations()
+            if op["wallet_role"] != "mock"
+            and not self._is_launch_intent(op["operation_id"])
+        ]
         for role in ("operator", "participant"):
             role_ops = [op for op in active if op["wallet_role"] == role]
             if not role_ops:
@@ -838,7 +1246,7 @@ class HushBoardService:
                     (missing, now, op["operation_id"]),
                 )
                 return
-            error = "operation is no longer known to Zallet; manual reconciliation is required"
+            error = _OPERATION_MISSING_ERROR
             conn.execute(
                 "UPDATE operations SET status='failed',missing_count=?,error_message=?,updated_at=? "
                 "WHERE operation_id=?",
@@ -987,14 +1395,27 @@ class HushBoardService:
             # z_listtransactions already proves wallet relevance. Older beta builds may
             # briefly fail z_viewtransaction while indexing, so retain a conservative
             # mined/not-mined view instead of inventing confirmations.
-            return ("mined", 0) if isinstance(tx.get("mined_height"), int) else ("waiting", 0)
+            return (
+                ("mined", 0)
+                if self._is_positive_int(tx.get("mined_height"))
+                else ("waiting", 0)
+            )
 
     def _scan_operator_transactions(self, counters: dict[str, Any]) -> None:
         transactions = self.wallet.list_operator_transactions()
         counters["scanned_transactions"] += len(transactions)
         with self.db.connection() as conn:
             invoice_rows = conn.execute("SELECT * FROM submissions WHERE demo=0").fetchall()
+            refund_rows = conn.execute(
+                "SELECT DISTINCT s.* FROM submissions AS s "
+                "JOIN operations AS o ON o.submission_id=s.id AND o.kind='refund' "
+                "WHERE s.demo=0 AND s.moderation_decision='refund' "
+                "AND o.status IN ('queued','executing','failed')"
+            ).fetchall()
         by_address = {row["invoice_address"]: row for row in invoice_rows}
+        refunds_by_address: dict[str, list[sqlite3.Row]] = {}
+        for row in refund_rows:
+            refunds_by_address.setdefault(row["refund_address"], []).append(row)
         tx_states: dict[str, tuple[str, int]] = {}
         for tx in transactions:
             txid = tx.get("txid")
@@ -1012,9 +1433,100 @@ class HushBoardService:
                 counters["scanned_outputs"] += 1
                 address = output.get("to_address")
                 submission = by_address.get(address)
-                if submission is None:
-                    continue
-                self._ingest_invoice_output(submission, txid, tx, output, state, counters)
+                if submission is not None:
+                    self._ingest_invoice_output(submission, txid, tx, output, state, counters)
+                for refund in refunds_by_address.get(address, ()):
+                    self._ingest_refund_launch_evidence(
+                        refund, txid, tx, output, state, counters
+                    )
+
+    def _ingest_refund_launch_evidence(
+        self,
+        submission: sqlite3.Row,
+        txid: str,
+        tx: dict[str, Any],
+        output: dict[str, Any],
+        tx_state: tuple[str, int],
+        counters: dict[str, Any],
+    ) -> None:
+        """Repair an ambiguous refund only from an exact mined outgoing note."""
+        status, confirmations = tx_state
+        pool = str(output.get("pool", "unknown")).lower()
+        output_index = output.get("output_index")
+        value = output.get("value")
+        memo = self._memo_text(output.get("memo"))
+        account_uuid = self._canonical_account_uuid(tx.get("account_uuid"))
+        if (
+            status != "mined"
+            or not self._is_positive_int(tx.get("mined_height"))
+            or account_uuid is None
+            or not self._is_positive_int(tx.get("sent_note_count"))
+            or tx.get("expired_unmined") is not False
+            or pool not in {"orchard", "ironwood"}
+            or not isinstance(output_index, int)
+            or isinstance(output_index, bool)
+            or output_index < 0
+            or not isinstance(value, int)
+            or isinstance(value, bool)
+            or value != submission["amount_zat"]
+            or memo != submission["memo"]
+            or output.get("to_address") != submission["refund_address"]
+            or output.get("from_account") != account_uuid
+            or "to_account" not in output
+            or output["to_account"] is not None
+            or output.get("is_change") is not False
+        ):
+            return
+
+        now = utc_now()
+        with self.db.transaction(immediate=True) as conn:
+            current = self.db.get_submission_by_id(submission["id"], conn)
+            if (
+                current["moderation_decision"] != "refund"
+                or current["refund_operation_id"] is None
+                or txid == current["bond_txid"]
+                or current["refund_txid"] not in {None, txid}
+                or current["status"] not in {
+                    "moderation",
+                    "failure",
+                    "refund_broadcast",
+                    "refunded",
+                }
+            ):
+                return
+            operation = conn.execute(
+                "SELECT * FROM operations WHERE operation_id=? AND kind='refund'",
+                (current["refund_operation_id"],),
+            ).fetchone()
+            if operation is None or operation["txid"] not in {None, txid}:
+                return
+            if not self._operation_accepts_late_evidence(operation):
+                return
+            conn.execute(
+                "UPDATE operations SET status='success',txid=?,txids_json=?,broadcast=1,"
+                "error_code=NULL,error_message=NULL,missing_count=0,updated_at=? "
+                "WHERE operation_id=?",
+                (txid, json.dumps([txid]), now, operation["operation_id"]),
+            )
+            counters["operations_updated"] += 1
+            if current["status"] == "refunded":
+                return
+            self.db.transition_in_connection(
+                conn,
+                current["id"],
+                "refund_broadcast",
+                reason="refund_launch_reconciled_from_mined_output",
+                now=now,
+                metadata={"txid": txid, "pool": pool, "output_index": output_index},
+                updates={
+                    "refund_txid": txid,
+                    "refund_confirmations": confirmations,
+                    "refund_tx_status": status,
+                    "refund_error": None,
+                    "status_detail": "Mined refund evidence reconciled after an ambiguous wallet launch.",
+                },
+            )
+            counters["submissions_updated"] += 1
 
     def _ingest_invoice_output(
         self,
@@ -1035,19 +1547,38 @@ class HushBoardService:
             counters["warnings"].append(f"invalid output value in {txid}")
             return
         memo = self._memo_text(output.get("memo"))
-        is_change = bool(output.get("is_change", False))
+        change_flag = output.get("is_change")
+        is_change = change_flag is True
         status, confirmations = tx_state
+        mined_height = (
+            tx.get("mined_height")
+            if self._is_positive_int(tx.get("mined_height"))
+            else None
+        )
+        account_uuid = self._canonical_account_uuid(tx.get("account_uuid"))
         reasons: list[str] = []
         # Orchard receiver funds move into the Ironwood pool after NU6.3. Both are the
         # same Orchard-family receiver, never a request for an "ironwood" UA receiver.
         if pool not in {"orchard", "ironwood"}:
             reasons.append(f"unexpected_pool:{pool}")
+        if output.get("to_address") != submission["invoice_address"]:
+            reasons.append("wrong_receiver")
         if value != submission["amount_zat"]:
             reasons.append(f"wrong_amount:{value}")
         if memo != submission["memo"]:
             reasons.append("memo_missing" if memo is None else "memo_mismatch")
-        if is_change:
-            reasons.append("change_output")
+        if account_uuid is None:
+            reasons.append("invalid_account_uuid")
+        if not self._is_positive_int(tx.get("received_note_count")):
+            reasons.append("not_received_by_account")
+        if tx.get("expired_unmined") is not False:
+            reasons.append("expired_or_unknown_transaction")
+        if "from_account" not in output or output["from_account"] is not None:
+            reasons.append("not_incoming")
+        if account_uuid is None or output.get("to_account") != account_uuid:
+            reasons.append("wrong_destination_account")
+        if change_flag is not False:
+            reasons.append("change_output" if is_change else "invalid_change_flag")
         exact = not reasons
         now = utc_now()
         with self.db.transaction(immediate=True) as conn:
@@ -1064,7 +1595,7 @@ class HushBoardService:
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         txid, pool, output_index, submission["id"], output.get("to_address"), value,
-                        memo, int(is_change), tx.get("mined_height"), confirmations, status,
+                        memo, int(is_change), mined_height, confirmations, status,
                         initial_result, ";".join(reasons) or None, now, now,
                     ),
                 )
@@ -1072,7 +1603,7 @@ class HushBoardService:
                 conn.execute(
                     "UPDATE wallet_outputs SET mined_height=?,confirmations=?,tx_status=?,last_seen_at=? "
                     "WHERE id=?",
-                    (tx.get("mined_height"), confirmations, status, now, current_output["id"]),
+                    (mined_height, confirmations, status, now, current_output["id"]),
                 )
             current = self.db.get_submission_by_id(submission["id"], conn)
             bound_same = (
@@ -1100,7 +1631,7 @@ class HushBoardService:
                             "bond_pool": pool,
                             "bond_output_index": output_index,
                             "bond_confirmations": confirmations,
-                            "bond_mined_height": tx.get("mined_height"),
+                            "bond_mined_height": mined_height,
                             "bond_tx_status": status,
                             "mismatch_reason": None,
                             "status_detail": "Exact bond seen; awaiting confirmations.",
@@ -1117,6 +1648,14 @@ class HushBoardService:
 
             if exact and bound_same:
                 current = self.db.get_submission_by_id(submission["id"], conn)
+                if status == "mined" and mined_height is not None:
+                    self._repair_operation_from_chain_evidence(
+                        conn,
+                        submission_id=current["id"],
+                        kind="bond_send",
+                        txid=txid,
+                        counters=counters,
+                    )
                 if status in {"expired", "cancelled"}:
                     if current["status"] in {"bond_pending", "moderation"}:
                         self.db.transition_in_connection(
@@ -1132,7 +1671,11 @@ class HushBoardService:
                             },
                         )
                         counters["submissions_updated"] += 1
-                elif confirmations >= self.settings.minimum_confirmations:
+                elif (
+                    status == "mined"
+                    and mined_height is not None
+                    and confirmations >= self.settings.minimum_confirmations
+                ):
                     if current["status"] == "bond_pending":
                         self.db.transition_in_connection(
                             conn,
@@ -1143,7 +1686,7 @@ class HushBoardService:
                             metadata={"txid": txid, "confirmations": confirmations},
                             updates={
                                 "bond_confirmations": confirmations,
-                                "bond_mined_height": tx.get("mined_height"),
+                                "bond_mined_height": mined_height,
                                 "bond_tx_status": status,
                                 "status_detail": "Bond confirmed; awaiting centralized moderation.",
                             },
@@ -1158,7 +1701,7 @@ class HushBoardService:
                             now=now,
                             updates={
                                 "bond_confirmations": confirmations,
-                                "bond_mined_height": tx.get("mined_height"),
+                                "bond_mined_height": mined_height,
                                 "bond_tx_status": status,
                             },
                         )

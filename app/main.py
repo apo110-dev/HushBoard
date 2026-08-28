@@ -110,7 +110,9 @@ def create_app(
             "exactly 1,000,000 zats. Check `mode` before treating demo data as on-chain."
         ),
         version="1.0.0",
-        docs_url="/api/docs",
+        # The default Swagger page relies on third-party/inline assets that the strict
+        # loopback CSP intentionally blocks. Keep the machine-readable local schema only.
+        docs_url=None,
         redoc_url=None,
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
@@ -233,7 +235,7 @@ def create_app(
             "service": "HushBoard",
             "api": "/api",
             "health": "/api/health",
-            "docs": "/api/docs",
+            "openapi": "/api/openapi.json",
             "mode": service.mode,
             "mode_label": service.mode_label,
         }

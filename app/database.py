@@ -120,6 +120,7 @@ CREATE INDEX IF NOT EXISTS wallet_outputs_submission_idx
 
 CREATE TABLE IF NOT EXISTS operations (
     operation_id TEXT PRIMARY KEY,
+    request_key TEXT,
     submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
     kind TEXT NOT NULL CHECK(kind IN ('bond_send','refund')),
     wallet_role TEXT NOT NULL CHECK(wallet_role IN ('operator','participant','mock')),
@@ -192,10 +193,62 @@ class Database:
         self.path.chmod(0o600)
         conn = self._connect()
         try:
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            if version > 2:
+                raise DatabaseError(
+                    f"database schema version {version} is newer than supported version 2"
+                )
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=FULL")
-            conn.executescript(SCHEMA)
-            conn.execute("PRAGMA user_version=1")
+            if version < 2:
+                conn.executescript(SCHEMA)
+
+            # v2 adds a stable idempotency key without rebuilding the operations table.
+            # The write lock makes concurrent v1 processes serialize their column check
+            # and lets the loser validate the v2 schema written by the winner.
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                if version > 2:
+                    raise DatabaseError(
+                        f"database schema version {version} is newer than supported version 2"
+                    )
+                operation_columns = {
+                    row["name"]
+                    for row in conn.execute("PRAGMA table_info(operations)").fetchall()
+                }
+                if version < 2:
+                    if "request_key" not in operation_columns:
+                        conn.execute("ALTER TABLE operations ADD COLUMN request_key TEXT")
+                    conn.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS operations_request_key_uq "
+                        "ON operations(request_key) WHERE request_key IS NOT NULL"
+                    )
+                    conn.execute("PRAGMA user_version=2")
+                else:
+                    indexes = {
+                        row["name"]: row
+                        for row in conn.execute("PRAGMA index_list(operations)").fetchall()
+                    }
+                    request_index = indexes.get("operations_request_key_uq")
+                    indexed_columns = [
+                        row["name"]
+                        for row in conn.execute(
+                            "PRAGMA index_info(operations_request_key_uq)"
+                        ).fetchall()
+                    ]
+                    if (
+                        "request_key" not in operation_columns
+                        or request_index is None
+                        or not bool(request_index["unique"])
+                        or not bool(request_index["partial"])
+                        or indexed_columns != ["request_key"]
+                    ):
+                        raise DatabaseError("database v2 idempotency schema is invalid")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
         finally:
             conn.close()
             self._secure_permissions()
@@ -410,14 +463,15 @@ class Database:
         now: str,
         txid: str | None = None,
         broadcast: bool | None = None,
+        request_key: str | None = None,
     ) -> None:
         with self.transaction(immediate=True) as conn:
             conn.execute(
                 "INSERT INTO operations "
-                "(operation_id,submission_id,kind,wallet_role,status,txid,broadcast,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "(operation_id,request_key,submission_id,kind,wallet_role,status,txid,broadcast,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
-                    operation_id, submission_id, kind, wallet_role, status, txid,
+                    operation_id, request_key, submission_id, kind, wallet_role, status, txid,
                     None if broadcast is None else int(broadcast), now, now,
                 ),
             )
