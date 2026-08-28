@@ -30,6 +30,7 @@ jobs:
         with:
           version: "0.11.21"
           enable-cache: true
+          cache-suffix: py-${{ matrix.python-version }}
       - name: Install Python and locked dependencies
         run: |
           uv python install "${{ matrix.python-version }}"
@@ -51,6 +52,7 @@ jobs:
         with:
           version: "0.11.21"
           enable-cache: true
+          cache-suffix: quality
       - name: Verify and install the lockfile
         run: |
           uv lock --check
